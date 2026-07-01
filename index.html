@@ -440,15 +440,18 @@ function quickCreate(date){openSerata();const e=document.getElementById('f_data'
 function todoRow(t,col){
   const s=t.serata_id?S.serate.find(x=>x.id===t.serata_id):null;
   const ap=t.assegnato_id?S.personale.find(x=>x.id===t.assegnato_id):null;
+  const ct=t.contatto_id?S.contatti.find(x=>x.id===t.contatto_id):null;
   const overdue=t.scadenza&&!t.fatto&&t.scadenza<today();
   const meta=[];
   if(t.scadenza)meta.push(`<span style="${overdue?'color:#f87171':''}">${esc(fmtShort(t.scadenza))}${overdue?' · scaduto':''}</span>`);
   if(ap)meta.push('→ '+esc(ap.nome));
+  if(ct)meta.push('📇 '+esc(ct.nome));
   if(s)meta.push('serata '+esc(fmtShort(s.data)));
   if(t.note)meta.push(esc(t.note));
-  return `<div class="card" style="padding:11px 13px;margin-bottom:8px;display:flex;align-items:center;gap:11px">
+  return `<div class="card" style="padding:11px 13px;margin-bottom:8px;display:flex;align-items:center;gap:10px">
     <span onclick="toggleTodo(${t.id},${t.fatto?'false':'true'})" style="cursor:pointer;width:22px;height:22px;border-radius:7px;border:2px solid ${t.fatto?'var(--accent)':'var(--border2)'};background:${t.fatto?'var(--accent)':'transparent'};flex:none;display:flex;align-items:center;justify-content:center;color:#0a0a0d;font-size:13px;font-weight:700">${t.fatto?'✓':''}</span>
     <div style="flex:1;min-width:0" onclick="openTodo(${t.id})"><div style="font-size:14px;${t.fatto?'text-decoration:line-through;color:var(--muted)':''}">${esc(t.testo)}</div>${meta.length?`<div class="dim" style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${meta.join(' · ')}</div>`:''}</div>
+    ${ct&&ct.telefono?`<button class="cbtn" style="width:32px;height:32px" onclick="contactAction('wa',${ct.id})">💬</button>`:''}
     ${ap?`<div class="avatar" style="width:26px;height:26px;border-radius:8px;font-size:11px">${esc(initials(ap.nome))}</div>`:''}
     <span style="width:9px;height:9px;border-radius:50%;background:${col};flex:none"></span>
   </div>`;
@@ -462,12 +465,15 @@ function openTodo(id){const t=id?{...S.todo.find(x=>x.id===id)}:{testo:'',priori
       <div><div class="label" style="margin-bottom:6px">Scadenza</div><input id="td_scad" type="date" class="input" value="${t.scadenza||''}"></div>
       <div><div class="label" style="margin-bottom:6px">Serata collegata</div><select id="td_ser" class="input"><option value="">—</option>${S.serate.map(s=>`<option value="${s.id}" ${t.serata_id===s.id?'selected':''}>${esc(fmtShort(s.data))}</option>`).join('')}</select></div>
     </div>
-    <div class="field"><div class="label" style="margin-bottom:6px">Assegnato a</div><select id="td_ass" class="input"><option value="">— nessuno —</option>${S.personale.filter(p=>p.attivo!==false).map(p=>`<option value="${p.id}" ${t.assegnato_id===p.id?'selected':''}>${esc(p.nome)}</option>`).join('')}</select></div>
+    <div class="grid2 field">
+      <div><div class="label" style="margin-bottom:6px">Assegnato a (team)</div><select id="td_ass" class="input"><option value="">— nessuno —</option>${S.personale.filter(p=>p.attivo!==false).map(p=>`<option value="${p.id}" ${t.assegnato_id===p.id?'selected':''}>${esc(p.nome)}</option>`).join('')}</select></div>
+      <div><div class="label" style="margin-bottom:6px">Contatto collegato</div><select id="td_cont" class="input"><option value="">— nessuno —</option>${S.contatti.map(c=>`<option value="${c.id}" ${t.contatto_id===c.id?'selected':''}>${esc(c.nome)}${c.ruolo?' ('+esc(c.ruolo)+')':''}</option>`).join('')}</select></div>
+    </div>
     <div class="field"><textarea id="td_note" rows="2" class="input" placeholder="Note">${esc(t.note)}</textarea></div>
     <div style="display:flex;gap:8px"><button onclick="saveTodo(${id||'null'})" class="btn btn-accent" style="flex:1">Salva</button>${id?`<button onclick="delTodo(${id})" class="btn btn-danger">Elimina</button>`:''}</div>`;
   showModal();
 }
-async function saveTodo(id){const pe=document.querySelector('.tdprio.on');const o={testo:$('#td_testo').value.trim(),priorita:pe?pe.dataset.prio:'media',scadenza:$('#td_scad').value||null,serata_id:$('#td_ser').value?+$('#td_ser').value:null,assegnato_id:$('#td_ass').value?+$('#td_ass').value:null,note:$('#td_note').value};if(!o.testo)return alert('Scrivi il to-do');if(id)await db.from('todo').update(o).eq('id',id);else await db.from('todo').insert(o);await reloadAll();hideModal();render();}
+async function saveTodo(id){const pe=document.querySelector('.tdprio.on');const o={testo:$('#td_testo').value.trim(),priorita:pe?pe.dataset.prio:'media',scadenza:$('#td_scad').value||null,serata_id:$('#td_ser').value?+$('#td_ser').value:null,assegnato_id:$('#td_ass').value?+$('#td_ass').value:null,contatto_id:$('#td_cont').value?+$('#td_cont').value:null,note:$('#td_note').value};if(!o.testo)return alert('Scrivi il to-do');if(id)await db.from('todo').update(o).eq('id',id);else await db.from('todo').insert(o);await reloadAll();hideModal();render();}
 async function toggleTodo(id,val){await db.from('todo').update({fatto:val}).eq('id',id);await reloadAll();render();}
 async function delTodo(id){await db.from('todo').delete().eq('id',id);await reloadAll();hideModal();render();}
 
