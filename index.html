@@ -183,7 +183,7 @@ function openApp(){
 }
 
 // ================= STATE =================
-let S={tipologie:[],ruoli:[],tipRuoli:[],personale:[],serate:[],assegn:[],contatti:[],config:{},articoli:[],movimenti:[],prodotti:[],ricette:[],vendite:[],costiSerata:[],incassiExtra:[],todo:[],note:[],file:[]};
+let S={tipologie:[],ruoli:[],tipRuoli:[],personale:[],serate:[],assegn:[],contatti:[],config:{},articoli:[],movimenti:[],prodotti:[],ricette:[],vendite:[],costiSerata:[],incassiExtra:[],todo:[],note:[],file:[],cartella:[]};
 let TAB='home';
 async function boot(){
   if(!initDb()){let n=0;await new Promise(r=>{const t=setInterval(()=>{if(initDb()||++n>24){clearInterval(t);r();}},250);});}
@@ -191,7 +191,7 @@ async function boot(){
   await reloadAll(); subscribe(); render();
 }
 async function reloadAll(){
-  const [tip,ruo,tr,per,ser,ass,con,cfgr,arts,movs,pro,ric,ven,cos,inc,tdo,nte,fls]=await Promise.all([
+  const [tip,ruo,tr,per,ser,ass,con,cfgr,arts,movs,pro,ric,ven,cos,inc,tdo,nte,fls,crt]=await Promise.all([
     db.from('tipologie').select('*').order('ordine'),
     db.from('ruoli').select('*').order('id'),
     db.from('tipologia_ruoli').select('*'),
@@ -210,6 +210,7 @@ async function reloadAll(){
     db.from('todo').select('*').order('created_at'),
     db.from('note').select('*').order('updated_at',{ascending:false}),
     db.from('file').select('*').order('created_at',{ascending:false}),
+    db.from('cartella').select('*').order('nome'),
   ]);
   S.tipologie=tip.data||[];S.ruoli=ruo.data||[];S.tipRuoli=tr.data||[];
   S.personale=per.data||[];S.serate=ser.data||[];S.assegn=ass.data||[];S.contatti=con.data||[];
@@ -217,10 +218,10 @@ async function reloadAll(){
   S.articoli=(arts&&arts.data)||[]; S.movimenti=(movs&&movs.data)||[];
   S.prodotti=(pro&&pro.data)||[]; S.ricette=(ric&&ric.data)||[]; S.vendite=(ven&&ven.data)||[];
   S.costiSerata=(cos&&cos.data)||[]; S.incassiExtra=(inc&&inc.data)||[];
-  S.todo=(tdo&&tdo.data)||[]; S.note=(nte&&nte.data)||[]; S.file=(fls&&fls.data)||[];
+  S.todo=(tdo&&tdo.data)||[]; S.note=(nte&&nte.data)||[]; S.file=(fls&&fls.data)||[]; S.cartella=(crt&&crt.data)||[];
 }
 function subscribe(){
-  ['tipologie','ruoli','tipologia_ruoli','personale','serate','serata_personale','contatti','config','articoli','movimenti','prodotti','ricette','vendite','costi_serata','incassi_extra','todo','note','file'].forEach(t=>{
+  ['tipologie','ruoli','tipologia_ruoli','personale','serate','serata_personale','contatti','config','articoli','movimenti','prodotti','ricette','vendite','costi_serata','incassi_extra','todo','note','file','cartella'].forEach(t=>{
     db.channel('rt_'+t).on('postgres_changes',{event:'*',schema:'public',table:t},async()=>{
       await reloadAll(); render();
       const s=document.getElementById('synced'); s.textContent='● aggiornato'; setTimeout(()=>s.textContent='● live',1400);
@@ -417,14 +418,7 @@ function renderSerate(){
         <div class="dim" style="font-size:11px;margin-top:6px">${esc(fmtDateTime(n.updated_at))}</div>
       </div>`).join('') : `<div class="card" style="padding:20px" class="muted">Nessun appunto. Tocca + per creare la prima nota condivisa col team.</div>`;
   } else if(serateMode==='file'){
-    html+=`<input type="file" id="fileInput" style="display:none" onchange="uploadFile(this)">
-      <button onclick="document.getElementById('fileInput').click()" class="btn btn-ghost" style="width:100%;margin-bottom:14px">+ Carica un file</button>`;
-    html+= S.file.length? S.file.map(f=>`<div class="card" style="padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:11px">
-        <div class="avatar" style="border-radius:9px;font-size:10px">${esc(fileExt(f.nome))}</div>
-        <div style="flex:1;min-width:0"><a href="${esc(f.url)}" target="_blank" rel="noopener" style="font-size:14px;font-weight:500;color:var(--text);text-decoration:none">${esc(f.nome)}</a><div class="dim" style="font-size:12px">${fmtSize(f.size)}</div></div>
-        <a href="${esc(f.url)}" target="_blank" rel="noopener" class="btn btn-sm btn-ghost">Apri</a>
-        <button onclick="delFile(${f.id})" class="btn btn-sm btn-ghost" style="color:#f87171">×</button>
-      </div>`).join('') : `<div class="card" style="padding:20px" class="muted">Nessun file. Carica documenti, PDF o immagini da condividere col team.</div>`;
+    html+=fileOrganizer();
   } else {
     const f=serateFilter, chips=['tutte','prossime','bozza','confermata','consuntivo'];
     let list=S.serate.slice();
@@ -518,6 +512,46 @@ async function saveNota(id){const o={titolo:$('#nt_titolo').value.trim(),contenu
 async function delNota(id){if(confirm('Eliminare la nota?')){await db.from('note').delete().eq('id',id);await reloadAll();hideModal();render();}}
 async function uploadFile(input){const f=input.files&&input.files[0];if(!f)return;const syn=document.getElementById('synced');if(syn)syn.textContent='● caricamento…';const path=Date.now()+'_'+f.name.replace(/[^\w.\-]/g,'_');const up=await db.storage.from('files').upload(path,f);if(up.error){alert('Errore upload: '+up.error.message);if(syn)syn.textContent='● live';return;}const pub=db.storage.from('files').getPublicUrl(path);await db.from('file').insert({nome:f.name,path:path,url:pub.data.publicUrl,size:f.size});await reloadAll();if(syn)syn.textContent='● live';render();}
 async function delFile(id){const f=S.file.find(x=>x.id===id);if(!f)return;if(!confirm('Eliminare il file?'))return;if(f.path)await db.storage.from('files').remove([f.path]);await db.from('file').delete().eq('id',id);await reloadAll();render();}
+
+// ---- File organizer: cartelle + upload multiplo / cartelle ----
+let currentFolder=null;
+function folderPath(id){const p=[];let c=id,g=0;while(c&&g++<50){const f=S.cartella.find(x=>x.id===c);if(!f)break;p.unshift(f);c=f.parent_id;}return p;}
+function navFolder(id){currentFolder=id;renderSerate();}
+function fileOrganizer(){
+  const cur=currentFolder, path=folderPath(cur);
+  const subs=S.cartella.filter(f=>(f.parent_id||null)===(cur||null)).sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+  const files=S.file.filter(f=>(f.cartella_id||null)===(cur||null));
+  let h=`<input type="file" id="fileInput" multiple style="display:none" onchange="uploadFiles(this)">
+    <input type="file" id="folderInput" webkitdirectory directory multiple style="display:none" onchange="uploadFolder(this)">
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:12px;font-size:13px">
+      <span onclick="navFolder(null)" style="cursor:pointer;color:${cur?'var(--accent)':'var(--text)'};font-weight:500">Home</span>
+      ${path.map(f=>`<span class="dim">/</span><span onclick="navFolder(${f.id})" style="cursor:pointer;color:${f.id===cur?'var(--text)':'var(--accent)'}">${esc(f.nome)}</span>`).join('')}
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+      <button class="btn btn-sm btn-ghost" onclick="createFolder()">+ Cartella</button>
+      <button class="btn btn-sm btn-ghost" onclick="document.getElementById('fileInput').click()">Carica file</button>
+      <button class="btn btn-sm btn-ghost" onclick="document.getElementById('folderInput').click()">Carica cartella</button>
+    </div>`;
+  subs.forEach(f=>{const n=S.file.filter(x=>x.cartella_id===f.id).length+S.cartella.filter(x=>x.parent_id===f.id).length;
+    h+=`<div class="card" style="padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:11px">
+      <div onclick="navFolder(${f.id})" style="flex:1;min-width:0;display:flex;align-items:center;gap:11px;cursor:pointer"><div class="avatar" style="border-radius:9px">📁</div><div style="min-width:0"><div style="font-size:14px;font-weight:500">${esc(f.nome)}</div><div class="dim" style="font-size:12px">${n} element${n===1?'o':'i'}</div></div></div>
+      <button class="btn btn-sm btn-ghost" style="color:#f87171" onclick="delFolder(${f.id})">×</button></div>`;});
+  files.forEach(f=>{h+=`<div class="card" style="padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:11px">
+      <div class="avatar" style="border-radius:9px;font-size:10px">${esc(fileExt(f.nome))}</div>
+      <div style="flex:1;min-width:0"><a href="${esc(f.url)}" target="_blank" rel="noopener" style="font-size:14px;font-weight:500;color:var(--text);text-decoration:none">${esc(f.nome)}</a><div class="dim" style="font-size:12px">${fmtSize(f.size)}</div></div>
+      <a href="${esc(f.url)}" target="_blank" rel="noopener" class="btn btn-sm btn-ghost">Apri</a>
+      <button class="btn btn-sm btn-ghost" style="color:#f87171" onclick="delFile(${f.id})">×</button></div>`;});
+  if(!subs.length&&!files.length)h+=`<div class="card" style="padding:20px" class="muted">Cartella vuota. Crea una sottocartella o carica file/cartelle.</div>`;
+  return h;
+}
+async function createFolder(){const n=prompt('Nome cartella:');if(!n||!n.trim())return;await db.from('cartella').insert({nome:n.trim(),parent_id:currentFolder});await reloadAll();render();}
+async function uploadOne(f,cartella_id){const path=Date.now()+'_'+Math.random().toString(36).slice(2,7)+'_'+f.name.replace(/[^\w.\-]/g,'_');const up=await db.storage.from('files').upload(path,f);if(up.error)throw up.error;const pub=db.storage.from('files').getPublicUrl(path);await db.from('file').insert({nome:f.name,path:path,url:pub.data.publicUrl,size:f.size,cartella_id:cartella_id});}
+async function uploadFiles(input){const fs=[...(input.files||[])];if(!fs.length)return;const syn=document.getElementById('synced');if(syn)syn.textContent='● caricamento…';try{for(const f of fs)await uploadOne(f,currentFolder);}catch(e){alert('Errore upload: '+(e.message||e));}if(syn)syn.textContent='● live';await reloadAll();render();}
+async function uploadFolder(input){const fs=[...(input.files||[])];if(!fs.length)return;const syn=document.getElementById('synced');if(syn)syn.textContent='● caricamento…';const cache={};
+  async function ensurePath(parts,parent){let pid=parent,key=String(parent||'root');for(const name of parts){key+='/'+name;if(cache[key]!==undefined){pid=cache[key];continue;}const ins=await db.from('cartella').insert({nome:name,parent_id:pid}).select('id').single();pid=ins.data?ins.data.id:pid;cache[key]=pid;}return pid;}
+  try{for(const f of fs){const rel=f.webkitRelativePath||f.name;const parts=rel.split('/');parts.pop();const leaf=await ensurePath(parts,currentFolder);await uploadOne(f,leaf);}}catch(e){alert('Errore upload cartella: '+(e.message||e));}
+  if(syn)syn.textContent='● live';await reloadAll();render();}
+async function delFolder(id){if(!confirm('Eliminare la cartella e tutto il contenuto?'))return;const ids=[];const collect=(fid)=>{ids.push(fid);S.cartella.filter(c=>c.parent_id===fid).forEach(c=>collect(c.id));};collect(id);const paths=S.file.filter(f=>ids.includes(f.cartella_id)).map(f=>f.path).filter(Boolean);if(paths.length)await db.storage.from('files').remove(paths);if(currentFolder&&ids.includes(currentFolder))currentFolder=(S.cartella.find(c=>c.id===id)||{}).parent_id||null;await db.from('cartella').delete().eq('id',id);await reloadAll();render();}
 function openSerata(id){
   const s=id?{...S.serate.find(x=>x.id===id)}:{data:today(),tipologia_id:S.tipologie[0]?.id,stato:'bozza',capienza_attesa:'bassa',cena_strutturata:false,pista_attiva:false,programmazione:'dj_resident',pressione_cabanas:'scarica',modif_hostess:false,modif_tecnico:false,siae_ok:false,pubblico_spettacolo_ok:false,note:''};
   drawSerata(s,id); showModal();
