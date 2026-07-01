@@ -85,7 +85,7 @@ select.input{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
 #gate{position:fixed;inset:0;z-index:60;background:radial-gradient(120% 120% at 50% 0%,#141018 0%,#08080b 60%);display:flex;align-items:center;justify-content:center;padding:26px}
 /* nav */
 #nav{position:fixed;bottom:0;left:0;right:0;z-index:40;background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:blur(18px);border-top:1px solid var(--border)}
-#nav .inner{max-width:640px;margin:0 auto;display:grid;grid-template-columns:repeat(7,1fr)}
+#nav .inner{max-width:640px;margin:0 auto;display:grid;grid-template-columns:repeat(6,1fr)}
 .tabbtn span{font-size:9.5px}
 .tabbtn{background:none;border:0;color:var(--muted);padding:10px 0 14px;display:flex;flex-direction:column;align-items:center;gap:4px;font-size:10px;letter-spacing:.03em;cursor:pointer;font-family:inherit;transition:color .2s}
 .tabbtn svg{width:22px;height:22px;stroke-width:1.6}
@@ -130,11 +130,10 @@ header.top{position:sticky;top:0;z-index:30;background:color-mix(in srgb,var(--b
 <nav id="nav" class="hidden">
   <div class="inner">
     <button class="tabbtn active" data-tab="home"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>Home</button>
-    <button class="tabbtn" data-tab="serate"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="17" rx="3"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg>Serate</button>
+    <button class="tabbtn" data-tab="serate"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="17" rx="3"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg>Programma</button>
     <button class="tabbtn" data-tab="personale"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><path d="M16 5.5a3 3 0 0 1 0 5.6M18 20a5 5 0 0 0-3-4.6"/></svg>Team</button>
     <button class="tabbtn" data-tab="magazzino"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4Z"/><path d="M3 7v10l9 4 9-4V7"/><path d="M12 11.2V21"/></svg>Magazzino</button>
     <button class="tabbtn" data-tab="contatti"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="3"/><circle cx="12" cy="10" r="2.6"/><path d="M8 17a4 4 0 0 1 8 0"/></svg>Rubrica</button>
-    <button class="tabbtn" data-tab="note"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M5 3h9l5 5v13a0 0 0 0 1 0 0H5z"/><path d="M14 3v5h5"/><path d="M8 13h8M8 17h5"/></svg>Note</button>
     <button class="tabbtn" data-tab="setup"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/></svg>Setup</button>
   </div>
 </nav>
@@ -272,7 +271,7 @@ document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>{
   document.getElementById('fab').style.display=(TAB==='home'||TAB==='setup')?'none':'flex';
   render();
 }));
-function fabAction(){ if(TAB==='serate'){serateMode==='todo'?openTodo():openSerata();} else if(TAB==='personale')openPers(); else if(TAB==='contatti')openCont(); else if(TAB==='magazzino'){magazzinoMode==='listino'?openProdotto():openArticolo();} else if(TAB==='note'){noteMode==='file'?document.getElementById('fileInput').click():openNota();} }
+function fabAction(){ if(TAB==='serate'){ if(serateMode==='todo')openTodo(); else if(serateMode==='appunti')openNota(); else if(serateMode==='file')document.getElementById('fileInput').click(); else openSerata(); } else if(TAB==='personale')openPers(); else if(TAB==='contatti')openCont(); else if(TAB==='magazzino'){magazzinoMode==='listino'?openProdotto():openArticolo();} }
 function render(){({home:renderHome,serate:renderSerate,personale:renderPersonale,contatti:renderContatti,setup:renderSetup,magazzino:renderMagazzino,note:renderNote}[TAB])();}
 
 // ================= GAUGE =================
@@ -370,11 +369,13 @@ function rowSerata(s){const a=assetto(s);
 // ================= SERATE =================
 let serateFilter='tutte', serateMode='copertura';
 function renderSerate(){
-  let html=`<div class="fade"><div class="h1 serif" style="margin-bottom:14px">Serate</div>
+  let html=`<div class="fade"><div class="h1 serif" style="margin-bottom:14px">Programmazione</div>
     <div style="display:flex;gap:8px;margin-bottom:16px;overflow-x:auto;padding-bottom:2px">
-      <span class="chip ${serateMode==='copertura'?'on':''}" style="cursor:pointer" onclick="serateMode='copertura';renderSerate()">Copertura stagione</span>
-      <span class="chip ${serateMode==='elenco'?'on':''}" style="cursor:pointer" onclick="serateMode='elenco';renderSerate()">Elenco</span>
+      <span class="chip ${serateMode==='copertura'?'on':''}" style="cursor:pointer" onclick="serateMode='copertura';renderSerate()">Copertura</span>
+      <span class="chip ${serateMode==='elenco'?'on':''}" style="cursor:pointer" onclick="serateMode='elenco';renderSerate()">Serate</span>
       <span class="chip ${serateMode==='todo'?'on':''}" style="cursor:pointer" onclick="serateMode='todo';renderSerate()">To-do${S.todo.filter(t=>!t.fatto).length?' · '+S.todo.filter(t=>!t.fatto).length:''}</span>
+      <span class="chip ${serateMode==='appunti'?'on':''}" style="cursor:pointer" onclick="serateMode='appunti';renderSerate()">Appunti${S.note.length?' · '+S.note.length:''}</span>
+      <span class="chip ${serateMode==='file'?'on':''}" style="cursor:pointer" onclick="serateMode='file';renderSerate()">File${S.file.length?' · '+S.file.length:''}</span>
     </div>`;
   if(serateMode==='copertura'){
     const days=seasonDays();
@@ -409,6 +410,21 @@ function renderSerate(){
       html+=`<div class="label" style="margin:16px 0 9px">${prio[pk]}</div>`+lst.map(t=>todoRow(t,pcol[pk])).join('');});
     if(!open.length)html+=`<div class="card" style="padding:20px" class="muted">Nessun to-do aperto. Tocca + per aggiungere un'attività (con priorità e scadenza).</div>`;
     if(done.length)html+=`<div class="label" style="margin:20px 0 9px">Completati</div>`+done.slice(-15).reverse().map(t=>todoRow(t,'var(--muted)')).join('');
+  } else if(serateMode==='appunti'){
+    html+= S.note.length? S.note.map(n=>`<div class="card tap" onclick="openNota(${n.id})" style="padding:14px;margin-bottom:9px">
+        <div style="font-size:15px;font-weight:500">${esc(n.titolo||'Senza titolo')}</div>
+        <div class="dim" style="font-size:12px;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc((n.contenuto||'').replace(/\n/g,' ').slice(0,90))||'—'}</div>
+        <div class="dim" style="font-size:11px;margin-top:6px">${esc(fmtDateTime(n.updated_at))}</div>
+      </div>`).join('') : `<div class="card" style="padding:20px" class="muted">Nessun appunto. Tocca + per creare la prima nota condivisa col team.</div>`;
+  } else if(serateMode==='file'){
+    html+=`<input type="file" id="fileInput" style="display:none" onchange="uploadFile(this)">
+      <button onclick="document.getElementById('fileInput').click()" class="btn btn-ghost" style="width:100%;margin-bottom:14px">+ Carica un file</button>`;
+    html+= S.file.length? S.file.map(f=>`<div class="card" style="padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:11px">
+        <div class="avatar" style="border-radius:9px;font-size:10px">${esc(fileExt(f.nome))}</div>
+        <div style="flex:1;min-width:0"><a href="${esc(f.url)}" target="_blank" rel="noopener" style="font-size:14px;font-weight:500;color:var(--text);text-decoration:none">${esc(f.nome)}</a><div class="dim" style="font-size:12px">${fmtSize(f.size)}</div></div>
+        <a href="${esc(f.url)}" target="_blank" rel="noopener" class="btn btn-sm btn-ghost">Apri</a>
+        <button onclick="delFile(${f.id})" class="btn btn-sm btn-ghost" style="color:#f87171">×</button>
+      </div>`).join('') : `<div class="card" style="padding:20px" class="muted">Nessun file. Carica documenti, PDF o immagini da condividere col team.</div>`;
   } else {
     const f=serateFilter, chips=['tutte','prossime','bozza','confermata','consuntivo'];
     let list=S.serate.slice();
