@@ -535,11 +535,12 @@ function fileOrganizer(){
   subs.forEach(f=>{const n=S.file.filter(x=>x.cartella_id===f.id).length+S.cartella.filter(x=>x.parent_id===f.id).length;
     h+=`<div class="card" style="padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:11px">
       <div onclick="navFolder(${f.id})" style="flex:1;min-width:0;display:flex;align-items:center;gap:11px;cursor:pointer"><div class="avatar" style="border-radius:9px">📁</div><div style="min-width:0"><div style="font-size:14px;font-weight:500">${esc(f.nome)}</div><div class="dim" style="font-size:12px">${n} element${n===1?'o':'i'}</div></div></div>
-      <button class="btn btn-sm btn-ghost" style="color:#f87171" onclick="delFolder(${f.id})">×</button></div>`;});
+      <button class="btn btn-sm btn-ghost" onclick="openMove('cartella',${f.id})">Sposta</button><button class="btn btn-sm btn-ghost" style="color:#f87171" onclick="delFolder(${f.id})">×</button></div>`;});
   files.forEach(f=>{h+=`<div class="card" style="padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:11px">
       <div class="avatar" style="border-radius:9px;font-size:10px">${esc(fileExt(f.nome))}</div>
       <div style="flex:1;min-width:0"><a href="${esc(f.url)}" target="_blank" rel="noopener" style="font-size:14px;font-weight:500;color:var(--text);text-decoration:none">${esc(f.nome)}</a><div class="dim" style="font-size:12px">${fmtSize(f.size)}</div></div>
       <a href="${esc(f.url)}" target="_blank" rel="noopener" class="btn btn-sm btn-ghost">Apri</a>
+      <button class="btn btn-sm btn-ghost" onclick="openMove('file',${f.id})">Sposta</button>
       <button class="btn btn-sm btn-ghost" style="color:#f87171" onclick="delFile(${f.id})">×</button></div>`;});
   if(!subs.length&&!files.length)h+=`<div class="card" style="padding:20px" class="muted">Cartella vuota. Crea una sottocartella o carica file/cartelle.</div>`;
   return h;
@@ -552,6 +553,29 @@ async function uploadFolder(input){const fs=[...(input.files||[])];if(!fs.length
   try{for(const f of fs){const rel=f.webkitRelativePath||f.name;const parts=rel.split('/');parts.pop();const leaf=await ensurePath(parts,currentFolder);await uploadOne(f,leaf);}}catch(e){alert('Errore upload cartella: '+(e.message||e));}
   if(syn)syn.textContent='● live';await reloadAll();render();}
 async function delFolder(id){if(!confirm('Eliminare la cartella e tutto il contenuto?'))return;const ids=[];const collect=(fid)=>{ids.push(fid);S.cartella.filter(c=>c.parent_id===fid).forEach(c=>collect(c.id));};collect(id);const paths=S.file.filter(f=>ids.includes(f.cartella_id)).map(f=>f.path).filter(Boolean);if(paths.length)await db.storage.from('files').remove(paths);if(currentFolder&&ids.includes(currentFolder))currentFolder=(S.cartella.find(c=>c.id===id)||{}).parent_id||null;await db.from('cartella').delete().eq('id',id);await reloadAll();render();}
+function descendants(fid){const out=[fid];S.cartella.filter(c=>c.parent_id===fid).forEach(c=>out.push(...descendants(c.id)));return out;}
+function folderTree(exclude){const list=[];const walk=(parent,depth)=>{S.cartella.filter(c=>(c.parent_id||null)===(parent||null)).sort((a,b)=>(a.nome||'').localeCompare(b.nome||'')).forEach(c=>{if(exclude&&exclude.includes(c.id))return;list.push({id:c.id,nome:c.nome,depth:depth});walk(c.id,depth+1);});};walk(null,0);return list;}
+function openMove(kind,id){
+  const item=kind==='file'?S.file.find(x=>x.id===id):S.cartella.find(x=>x.id===id);
+  if(!item)return;
+  const exclude=kind==='cartella'?descendants(id):[];
+  const tree=folderTree(exclude);
+  const cur=kind==='file'?(item.cartella_id||null):(item.parent_id||null);
+  $('#modalbody').innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:2px 0 6px"><div class="serif" style="font-size:19px">Sposta</div><button onclick="hideModal()" class="btn btn-sm btn-ghost">Chiudi</button></div>
+    <div class="dim" style="font-size:13px;margin-bottom:12px">"${esc(item.nome)}" → scegli la destinazione</div>
+    <div class="card" style="padding:6px">
+      <div onclick="moveItem('${kind}',${id},null)" style="padding:11px 12px;cursor:pointer;border-radius:10px;${cur==null?'background:var(--accent-soft);color:var(--accent)':''}">🏠 Home (radice)</div>
+      ${tree.map(f=>`<div onclick="moveItem('${kind}',${id},${f.id})" style="padding:11px 12px;cursor:pointer;border-radius:10px;padding-left:${12+f.depth*18}px;${cur===f.id?'background:var(--accent-soft);color:var(--accent)':''}">📁 ${esc(f.nome)}</div>`).join('')}
+    </div>
+    <button onclick="hideModal()" class="btn btn-ghost" style="width:100%;margin-top:12px">Annulla</button>`;
+  showModal();
+}
+async function moveItem(kind,id,dest){
+  if(kind==='file'){await db.from('file').update({cartella_id:dest}).eq('id',id);}
+  else{if(dest===id)return;await db.from('cartella').update({parent_id:dest}).eq('id',id);}
+  await reloadAll();hideModal();render();
+}
 function openSerata(id){
   const s=id?{...S.serate.find(x=>x.id===id)}:{data:today(),tipologia_id:S.tipologie[0]?.id,stato:'bozza',capienza_attesa:'bassa',cena_strutturata:false,pista_attiva:false,programmazione:'dj_resident',pressione_cabanas:'scarica',modif_hostess:false,modif_tecnico:false,siae_ok:false,pubblico_spettacolo_ok:false,note:''};
   drawSerata(s,id); showModal();
