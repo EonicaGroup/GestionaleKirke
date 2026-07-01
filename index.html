@@ -183,7 +183,7 @@ function openApp(){
 }
 
 // ================= STATE =================
-let S={tipologie:[],ruoli:[],tipRuoli:[],personale:[],serate:[],assegn:[],contatti:[],config:{},articoli:[],movimenti:[],prodotti:[],ricette:[],vendite:[],costiSerata:[],incassiExtra:[]};
+let S={tipologie:[],ruoli:[],tipRuoli:[],personale:[],serate:[],assegn:[],contatti:[],config:{},articoli:[],movimenti:[],prodotti:[],ricette:[],vendite:[],costiSerata:[],incassiExtra:[],todo:[]};
 let TAB='home';
 async function boot(){
   if(!initDb()){let n=0;await new Promise(r=>{const t=setInterval(()=>{if(initDb()||++n>24){clearInterval(t);r();}},250);});}
@@ -191,7 +191,7 @@ async function boot(){
   await reloadAll(); subscribe(); render();
 }
 async function reloadAll(){
-  const [tip,ruo,tr,per,ser,ass,con,cfgr,arts,movs,pro,ric,ven,cos,inc]=await Promise.all([
+  const [tip,ruo,tr,per,ser,ass,con,cfgr,arts,movs,pro,ric,ven,cos,inc,tdo]=await Promise.all([
     db.from('tipologie').select('*').order('ordine'),
     db.from('ruoli').select('*').order('id'),
     db.from('tipologia_ruoli').select('*'),
@@ -207,6 +207,7 @@ async function reloadAll(){
     db.from('vendite').select('*'),
     db.from('costi_serata').select('*'),
     db.from('incassi_extra').select('*'),
+    db.from('todo').select('*').order('created_at'),
   ]);
   S.tipologie=tip.data||[];S.ruoli=ruo.data||[];S.tipRuoli=tr.data||[];
   S.personale=per.data||[];S.serate=ser.data||[];S.assegn=ass.data||[];S.contatti=con.data||[];
@@ -214,9 +215,10 @@ async function reloadAll(){
   S.articoli=(arts&&arts.data)||[]; S.movimenti=(movs&&movs.data)||[];
   S.prodotti=(pro&&pro.data)||[]; S.ricette=(ric&&ric.data)||[]; S.vendite=(ven&&ven.data)||[];
   S.costiSerata=(cos&&cos.data)||[]; S.incassiExtra=(inc&&inc.data)||[];
+  S.todo=(tdo&&tdo.data)||[];
 }
 function subscribe(){
-  ['tipologie','ruoli','tipologia_ruoli','personale','serate','serata_personale','contatti','config','articoli','movimenti','prodotti','ricette','vendite','costi_serata','incassi_extra'].forEach(t=>{
+  ['tipologie','ruoli','tipologia_ruoli','personale','serate','serata_personale','contatti','config','articoli','movimenti','prodotti','ricette','vendite','costi_serata','incassi_extra','todo'].forEach(t=>{
     db.channel('rt_'+t).on('postgres_changes',{event:'*',schema:'public',table:t},async()=>{
       await reloadAll(); render();
       const s=document.getElementById('synced'); s.textContent='● aggiornato'; setTimeout(()=>s.textContent='● live',1400);
@@ -267,7 +269,7 @@ document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>{
   document.getElementById('fab').style.display=(TAB==='home'||TAB==='setup')?'none':'flex';
   render();
 }));
-function fabAction(){ if(TAB==='serate')openSerata(); else if(TAB==='personale')openPers(); else if(TAB==='contatti')openCont(); else if(TAB==='magazzino'){magazzinoMode==='listino'?openProdotto():openArticolo();} }
+function fabAction(){ if(TAB==='serate'){serateMode==='todo'?openTodo():openSerata();} else if(TAB==='personale')openPers(); else if(TAB==='contatti')openCont(); else if(TAB==='magazzino'){magazzinoMode==='listino'?openProdotto():openArticolo();} }
 function render(){({home:renderHome,serate:renderSerate,personale:renderPersonale,contatti:renderContatti,setup:renderSetup,magazzino:renderMagazzino}[TAB])();}
 
 // ================= GAUGE =================
@@ -294,6 +296,8 @@ function renderHome(){
     if(s.stato==='confermata'&&s.pressione_cabanas==='piena'&&!s.modif_hostess)alerts.push(['amber',tit,'Cabanas piene senza hostess']);
   });
   S.articoli.filter(a=>a.attivo!==false&&daOrdinare(a)>0).forEach(a=>alerts.push(['amber','Magazzino · '+a.nome,'Sotto soglia: da ordinare ~'+daOrdinare(a)+' '+(a.unita||'')]));
+  const tdUrg=S.todo.filter(t=>!t.fatto&&(t.priorita==='alta'||(t.scadenza&&t.scadenza<today())));
+  if(tdUrg.length)alerts.unshift(['red',tdUrg.length+(tdUrg.length===1?' to-do urgente':' to-do urgenti'),tdUrg.slice(0,3).map(t=>t.testo).join(' · ')]);
   const sd=seasonDays(), covN=sd.filter(x=>x.serata).length, gapN=sd.length-covN, readyN=sd.filter(x=>x.serata&&x.serata.stato!=='bozza').length;
   const fuori=up.filter(s=>!sd.some(x=>x.serata&&x.serata.id===s.id));
   if(fuori.length)alerts.push(['amber',fuori.length+(fuori.length===1?' serata fuori calendario':' serate fuori calendario'),'In date non operative o fuori stagione: '+fuori.slice(0,4).map(s=>fmtShort(s.data)).join(', ')]);
@@ -364,9 +368,10 @@ function rowSerata(s){const a=assetto(s);
 let serateFilter='tutte', serateMode='copertura';
 function renderSerate(){
   let html=`<div class="fade"><div class="h1 serif" style="margin-bottom:14px">Serate</div>
-    <div style="display:flex;gap:8px;margin-bottom:16px">
+    <div style="display:flex;gap:8px;margin-bottom:16px;overflow-x:auto;padding-bottom:2px">
       <span class="chip ${serateMode==='copertura'?'on':''}" style="cursor:pointer" onclick="serateMode='copertura';renderSerate()">Copertura stagione</span>
       <span class="chip ${serateMode==='elenco'?'on':''}" style="cursor:pointer" onclick="serateMode='elenco';renderSerate()">Elenco</span>
+      <span class="chip ${serateMode==='todo'?'on':''}" style="cursor:pointer" onclick="serateMode='todo';renderSerate()">To-do${S.todo.filter(t=>!t.fatto).length?' · '+S.todo.filter(t=>!t.fatto).length:''}</span>
     </div>`;
   if(serateMode==='copertura'){
     const days=seasonDays();
@@ -394,6 +399,13 @@ function renderSerate(){
         }
       });
     }
+  } else if(serateMode==='todo'){
+    const open=S.todo.filter(t=>!t.fatto), done=S.todo.filter(t=>t.fatto);
+    const prio={alta:'Priorità alta',media:'Priorità media',bassa:'Priorità bassa'}, pcol={alta:'#f87171',media:'var(--accent)',bassa:'var(--muted)'};
+    Object.keys(prio).forEach(pk=>{const lst=open.filter(t=>(t.priorita||'media')===pk);if(!lst.length)return;
+      html+=`<div class="label" style="margin:16px 0 9px">${prio[pk]}</div>`+lst.map(t=>todoRow(t,pcol[pk])).join('');});
+    if(!open.length)html+=`<div class="card" style="padding:20px" class="muted">Nessun to-do aperto. Tocca + per aggiungere un'attività (con priorità e scadenza).</div>`;
+    if(done.length)html+=`<div class="label" style="margin:20px 0 9px">Completati</div>`+done.slice(-15).reverse().map(t=>todoRow(t,'var(--muted)')).join('');
   } else {
     const f=serateFilter, chips=['tutte','prossime','bozza','confermata','consuntivo'];
     let list=S.serate.slice();
@@ -404,6 +416,34 @@ function renderSerate(){
   html+=`</div>`; $('#view').innerHTML=html;
 }
 function quickCreate(date){openSerata();const e=document.getElementById('f_data');if(e)e.value=date;}
+
+// ---- To-do / programmazione interna ----
+function todoRow(t,col){
+  const s=t.serata_id?S.serate.find(x=>x.id===t.serata_id):null;
+  const overdue=t.scadenza&&!t.fatto&&t.scadenza<today();
+  return `<div class="card" style="padding:11px 13px;margin-bottom:8px;display:flex;align-items:center;gap:11px">
+    <span onclick="toggleTodo(${t.id},${t.fatto?'false':'true'})" style="cursor:pointer;width:22px;height:22px;border-radius:7px;border:2px solid ${t.fatto?'var(--accent)':'var(--border2)'};background:${t.fatto?'var(--accent)':'transparent'};flex:none;display:flex;align-items:center;justify-content:center;color:#0a0a0d;font-size:13px;font-weight:700">${t.fatto?'✓':''}</span>
+    <div style="flex:1;min-width:0" onclick="openTodo(${t.id})"><div style="font-size:14px;${t.fatto?'text-decoration:line-through;color:var(--muted)':''}">${esc(t.testo)}</div>
+    ${(t.scadenza||s||t.note)?`<div class="dim" style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t.scadenza?`<span style="${overdue?'color:#f87171':''}">${esc(fmtShort(t.scadenza))}${overdue?' · scaduto':''}</span>`:''}${s?(t.scadenza?' · ':'')+'serata '+esc(fmtShort(s.data)):''}${t.note?' · '+esc(t.note):''}</div>`:''}</div>
+    <span style="width:9px;height:9px;border-radius:50%;background:${col};flex:none"></span>
+  </div>`;
+}
+function openTodo(id){const t=id?{...S.todo.find(x=>x.id===id)}:{testo:'',priorita:'media',fatto:false,serata_id:null,scadenza:'',note:''};
+  $('#modalbody').innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:2px 0 16px"><div class="serif" style="font-size:19px">${id?'To-do':'Nuovo to-do'}</div><button onclick="hideModal()" class="btn btn-sm btn-ghost">Chiudi</button></div>
+    <div class="field"><input id="td_testo" class="input" placeholder="Cosa c'è da fare" value="${esc(t.testo)}"></div>
+    <div class="field"><div class="label" style="margin-bottom:8px">Priorità</div><div style="display:flex;gap:7px">${['alta','media','bassa'].map(p=>`<span class="chip tdprio ${(t.priorita||'media')===p?'on':''}" data-prio="${p}" style="cursor:pointer;text-transform:capitalize" onclick="document.querySelectorAll('.tdprio').forEach(e=>e.classList.remove('on'));this.classList.add('on')">${p}</span>`).join('')}</div></div>
+    <div class="grid2 field">
+      <div><div class="label" style="margin-bottom:6px">Scadenza</div><input id="td_scad" type="date" class="input" value="${t.scadenza||''}"></div>
+      <div><div class="label" style="margin-bottom:6px">Serata collegata</div><select id="td_ser" class="input"><option value="">—</option>${S.serate.map(s=>`<option value="${s.id}" ${t.serata_id===s.id?'selected':''}>${esc(fmtShort(s.data))}</option>`).join('')}</select></div>
+    </div>
+    <div class="field"><textarea id="td_note" rows="2" class="input" placeholder="Note">${esc(t.note)}</textarea></div>
+    <div style="display:flex;gap:8px"><button onclick="saveTodo(${id||'null'})" class="btn btn-accent" style="flex:1">Salva</button>${id?`<button onclick="delTodo(${id})" class="btn btn-danger">Elimina</button>`:''}</div>`;
+  showModal();
+}
+async function saveTodo(id){const pe=document.querySelector('.tdprio.on');const o={testo:$('#td_testo').value.trim(),priorita:pe?pe.dataset.prio:'media',scadenza:$('#td_scad').value||null,serata_id:$('#td_ser').value?+$('#td_ser').value:null,note:$('#td_note').value};if(!o.testo)return alert('Scrivi il to-do');if(id)await db.from('todo').update(o).eq('id',id);else await db.from('todo').insert(o);await reloadAll();hideModal();render();}
+async function toggleTodo(id,val){await db.from('todo').update({fatto:val}).eq('id',id);await reloadAll();render();}
+async function delTodo(id){await db.from('todo').delete().eq('id',id);await reloadAll();hideModal();render();}
 function openSerata(id){
   const s=id?{...S.serate.find(x=>x.id===id)}:{data:today(),tipologia_id:S.tipologie[0]?.id,stato:'bozza',capienza_attesa:'bassa',cena_strutturata:false,pista_attiva:false,programmazione:'dj_resident',pressione_cabanas:'scarica',modif_hostess:false,modif_tecnico:false,siae_ok:false,pubblico_spettacolo_ok:false,note:''};
   drawSerata(s,id); showModal();
