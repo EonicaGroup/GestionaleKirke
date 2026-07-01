@@ -183,7 +183,7 @@ function openApp(){
 }
 
 // ================= STATE =================
-let S={tipologie:[],ruoli:[],tipRuoli:[],personale:[],serate:[],assegn:[],contatti:[],config:{},articoli:[],movimenti:[],prodotti:[],ricette:[],vendite:[],costiSerata:[],incassiExtra:[],todo:[],note:[],file:[],cartella:[],allestimento:[]};
+let S={tipologie:[],ruoli:[],tipRuoli:[],personale:[],serate:[],assegn:[],contatti:[],config:{},articoli:[],movimenti:[],prodotti:[],ricette:[],vendite:[],costiSerata:[],incassiExtra:[],todo:[],note:[],file:[],cartella:[],allestimento:[],allestLink:[]};
 let TAB='home';
 async function boot(){
   if(!initDb()){let n=0;await new Promise(r=>{const t=setInterval(()=>{if(initDb()||++n>24){clearInterval(t);r();}},250);});}
@@ -191,7 +191,7 @@ async function boot(){
   await reloadAll(); subscribe(); render();
 }
 async function reloadAll(){
-  const [tip,ruo,tr,per,ser,ass,con,cfgr,arts,movs,pro,ric,ven,cos,inc,tdo,nte,fls,crt,alle]=await Promise.all([
+  const [tip,ruo,tr,per,ser,ass,con,cfgr,arts,movs,pro,ric,ven,cos,inc,tdo,nte,fls,crt,alle,alk]=await Promise.all([
     db.from('tipologie').select('*').order('ordine'),
     db.from('ruoli').select('*').order('id'),
     db.from('tipologia_ruoli').select('*'),
@@ -212,6 +212,7 @@ async function reloadAll(){
     db.from('file').select('*').order('created_at',{ascending:false}),
     db.from('cartella').select('*').order('nome'),
     db.from('allestimento').select('*').order('created_at'),
+    db.from('allestimento_link').select('*'),
   ]);
   S.tipologie=tip.data||[];S.ruoli=ruo.data||[];S.tipRuoli=tr.data||[];
   S.personale=per.data||[];S.serate=ser.data||[];S.assegn=ass.data||[];S.contatti=con.data||[];
@@ -219,10 +220,10 @@ async function reloadAll(){
   S.articoli=(arts&&arts.data)||[]; S.movimenti=(movs&&movs.data)||[];
   S.prodotti=(pro&&pro.data)||[]; S.ricette=(ric&&ric.data)||[]; S.vendite=(ven&&ven.data)||[];
   S.costiSerata=(cos&&cos.data)||[]; S.incassiExtra=(inc&&inc.data)||[];
-  S.todo=(tdo&&tdo.data)||[]; S.note=(nte&&nte.data)||[]; S.file=(fls&&fls.data)||[]; S.cartella=(crt&&crt.data)||[]; S.allestimento=(alle&&alle.data)||[];
+  S.todo=(tdo&&tdo.data)||[]; S.note=(nte&&nte.data)||[]; S.file=(fls&&fls.data)||[]; S.cartella=(crt&&crt.data)||[]; S.allestimento=(alle&&alle.data)||[]; S.allestLink=(alk&&alk.data)||[];
 }
 function subscribe(){
-  ['tipologie','ruoli','tipologia_ruoli','personale','serate','serata_personale','contatti','config','articoli','movimenti','prodotti','ricette','vendite','costi_serata','incassi_extra','todo','note','file','cartella','allestimento'].forEach(t=>{
+  ['tipologie','ruoli','tipologia_ruoli','personale','serate','serata_personale','contatti','config','articoli','movimenti','prodotti','ricette','vendite','costi_serata','incassi_extra','todo','note','file','cartella','allestimento','allestimento_link'].forEach(t=>{
     db.channel('rt_'+t).on('postgres_changes',{event:'*',schema:'public',table:t},async()=>{
       await reloadAll(); render();
       const s=document.getElementById('synced'); s.textContent='● aggiornato'; setTimeout(()=>s.textContent='● live',1400);
@@ -818,23 +819,26 @@ function renderMagazzino(){
     </div>`;
     const cats={};A.forEach(a=>{(cats[a.categoria||'Altro']=cats[a.categoria||'Altro']||[]).push(a);});
     Object.keys(cats).forEach(c=>{
-      html+=`<div class="label" style="margin:16px 0 9px">${esc(c)}</div>`+cats[c].map(a=>{const sub=Number(a.prezzo||0)*Number(a.quantita||1);
-        return `<div class="card" style="padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:11px">
-          <span onclick="toggleAllest(${a.id},${a.acquistato?'false':'true'})" style="cursor:pointer;width:22px;height:22px;border-radius:7px;border:2px solid ${a.acquistato?'var(--accent)':'var(--border2)'};background:${a.acquistato?'var(--accent)':'transparent'};flex:none;display:flex;align-items:center;justify-content:center;color:#0a0a0d;font-size:13px;font-weight:700">${a.acquistato?'✓':''}</span>
-          <div style="flex:1;min-width:0" onclick="openAllest(${a.id})"><div style="font-size:14px;font-weight:500;${a.acquistato?'text-decoration:line-through;color:var(--muted)':''}">${esc(a.nome)}</div><div class="dim" style="font-size:12px">${a.quantita||1} × ${eur(a.prezzo)} = ${eur(sub)}${a.note?' · '+esc(a.note):''}</div></div>
-          ${a.link?`<a href="${esc(a.link)}" target="_blank" rel="noopener" class="btn btn-sm btn-accent">Acquista</a>`:''}
-          <button class="btn btn-sm btn-ghost" style="color:#f87171" onclick="delAllest(${a.id})">×</button>
+      html+=`<div class="label" style="margin:16px 0 9px">${esc(c)}</div>`+cats[c].map(a=>{const sub=Number(a.prezzo||0)*Number(a.quantita||1);const lks=S.allestLink.filter(l=>l.allestimento_id===a.id);
+        return `<div class="card" style="padding:12px 14px;margin-bottom:8px">
+          <div style="display:flex;align-items:center;gap:11px">
+            <span onclick="toggleAllest(${a.id},${a.acquistato?'false':'true'})" style="cursor:pointer;width:22px;height:22px;border-radius:7px;border:2px solid ${a.acquistato?'var(--accent)':'var(--border2)'};background:${a.acquistato?'var(--accent)':'transparent'};flex:none;display:flex;align-items:center;justify-content:center;color:#0a0a0d;font-size:13px;font-weight:700">${a.acquistato?'✓':''}</span>
+            <div style="flex:1;min-width:0" onclick="openAllest(${a.id})"><div style="font-size:14px;font-weight:500;${a.acquistato?'text-decoration:line-through;color:var(--muted)':''}">${esc(a.nome)}</div><div class="dim" style="font-size:12px">${a.quantita||1} × ${eur(a.prezzo)} = ${eur(sub)}${a.note?' · '+esc(a.note):''}</div></div>
+            <button class="btn btn-sm btn-ghost" style="color:#f87171" onclick="delAllest(${a.id})">×</button>
+          </div>
+          ${lks.length?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-left:33px">${lks.map(l=>`<a href="${esc(l.url)}" target="_blank" rel="noopener" class="btn btn-sm btn-accent">${esc(urlLabel(l))}</a>`).join('')}</div>`:''}
         </div>`;}).join('');
     });
     if(!A.length)html+=`<div class="card" style="padding:22px" class="muted">Nessun articolo. Tocca + per aggiungere un articolo da acquistare con link, prezzo e quantità.</div>`;
   }
   html+=`</div>`;$('#view').innerHTML=html;
 }
-function openAllest(id){const a=id?{...S.allestimento.find(x=>x.id===id)}:{nome:'',link:'',prezzo:0,quantita:1,categoria:'',acquistato:false,note:''};
+function urlLabel(l){return l.etichetta||(l.url||'').replace(/^https?:\/\//,'').split('/')[0]||'Link';}
+function openAllest(id){const a=id?{...S.allestimento.find(x=>x.id===id)}:{nome:'',prezzo:0,quantita:1,categoria:'',acquistato:false,note:''};
+  const lks=id?S.allestLink.filter(l=>l.allestimento_id===id):[];
   $('#modalbody').innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:center;margin:2px 0 16px"><div class="serif" style="font-size:19px">${id?'Articolo allestimento':'Nuovo articolo'}</div><button onclick="hideModal()" class="btn btn-sm btn-ghost">Chiudi</button></div>
     <div class="field"><input id="al_nome" class="input" placeholder="Nome articolo" value="${esc(a.nome)}"></div>
-    <div class="field"><input id="al_link" class="input" placeholder="Link diretto all'acquisto (https://…)" value="${esc(a.link)}"></div>
     <div class="grid2 field">
       <div><div class="label" style="margin-bottom:6px">Prezzo unitario €</div><input id="al_prezzo" type="number" step="0.01" class="input" value="${a.prezzo||0}"></div>
       <div><div class="label" style="margin-bottom:6px">Quantità</div><input id="al_qta" type="number" step="1" class="input" value="${a.quantita||1}"></div>
@@ -842,10 +846,17 @@ function openAllest(id){const a=id?{...S.allestimento.find(x=>x.id===id)}:{nome:
     <div class="field"><input id="al_cat" class="input" placeholder="Categoria (es. arredo, luci, decorazioni)" value="${esc(a.categoria)}"></div>
     <div class="field"><textarea id="al_note" rows="2" class="input" placeholder="Note">${esc(a.note)}</textarea></div>
     <div class="field">${toggleChip('al_acq','Già acquistato',a.acquistato)}</div>
+    ${id?`<div class="card" style="padding:14px;margin-bottom:14px">
+      <div class="label" style="margin-bottom:8px">Link d'acquisto · più opzioni</div>
+      ${lks.map(l=>`<div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:6px 0;border-top:1px solid var(--border)"><a href="${esc(l.url)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:72%">${esc(l.etichetta||l.url)}</a><button onclick="delAllestLink(${l.id},${id})" class="btn btn-sm btn-ghost">×</button></div>`).join('')||'<div class="dim" style="font-size:12px">Nessun link. Aggiungine uno o più sotto.</div>'}
+      <div style="display:flex;gap:6px;margin-top:8px"><input id="alk_et" class="input" style="width:104px;padding:8px" placeholder="Etichetta"><input id="alk_url" class="input" style="flex:1;padding:8px" placeholder="https://…"><button onclick="addAllestLink(${id})" class="btn btn-accent btn-sm">+</button></div>
+    </div>`:'<div class="dim" style="font-size:12px;margin-bottom:14px">Salva l\'articolo, poi potrai aggiungere più link d\'acquisto.</div>'}
     <div style="display:flex;gap:8px"><button onclick="saveAllest(${id||'null'})" class="btn btn-accent" style="flex:1">Salva</button>${id?`<button onclick="delAllest(${id})" class="btn btn-danger">Elimina</button>`:''}</div>`;
   showModal();
 }
-async function saveAllest(id){const o={nome:$('#al_nome').value.trim(),link:$('#al_link').value.trim()||null,prezzo:+$('#al_prezzo').value||0,quantita:+$('#al_qta').value||1,categoria:$('#al_cat').value.trim()||null,acquistato:isOn('al_acq'),note:$('#al_note').value};if(!o.nome)return alert('Nome obbligatorio');if(id)await db.from('allestimento').update(o).eq('id',id);else await db.from('allestimento').insert(o);await reloadAll();hideModal();render();}
+async function saveAllest(id){const o={nome:$('#al_nome').value.trim(),prezzo:+$('#al_prezzo').value||0,quantita:+$('#al_qta').value||1,categoria:$('#al_cat').value.trim()||null,acquistato:isOn('al_acq'),note:$('#al_note').value};if(!o.nome)return alert('Nome obbligatorio');if(id){await db.from('allestimento').update(o).eq('id',id);await reloadAll();render();}else{const r=await db.from('allestimento').insert(o).select().single();await reloadAll();if(r.data)openAllest(r.data.id);else{hideModal();render();}}}
+async function addAllestLink(aid){const url=$('#alk_url').value.trim();if(!url)return alert('Inserisci un link');await db.from('allestimento_link').insert({allestimento_id:aid,url:url,etichetta:$('#alk_et').value.trim()||null});await reloadAll();openAllest(aid);}
+async function delAllestLink(id,aid){await db.from('allestimento_link').delete().eq('id',id);await reloadAll();openAllest(aid);}
 async function toggleAllest(id,val){await db.from('allestimento').update({acquistato:val}).eq('id',id);await reloadAll();render();}
 async function delAllest(id){if(confirm('Eliminare l\'articolo?')){await db.from('allestimento').delete().eq('id',id);await reloadAll();hideModal();render();}}
 function openArticolo(id){
