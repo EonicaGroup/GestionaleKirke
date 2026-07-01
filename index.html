@@ -373,7 +373,7 @@ function rowSerata(s){const a=assetto(s);
 }
 
 // ================= SERATE =================
-let serateFilter='tutte', serateMode='copertura', todoFilter='tutti';
+let serateFilter='tutte', serateMode='copertura', todoFilter='tutti', covView='cal';
 function renderSerate(){
   let html=`<div class="fade"><div class="h1 serif" style="margin-bottom:14px">Programmazione</div>
     <div style="display:flex;gap:8px;margin-bottom:16px;overflow-x:auto;padding-bottom:2px">
@@ -395,12 +395,16 @@ function renderSerate(){
           ${gap?`<button class="btn btn-accent btn-sm" onclick="genGaps()">Colma i vuoti · ${gap}</button>`:ready===days.length?'<span class="chip on">completa ✓</span>':`<span class="pill" style="background:var(--accent-soft);color:var(--accent)">${days.length-ready} da completare</span>`}
         </div>
         <div class="dim" style="font-size:12px;margin-top:8px">${cov} programmate · ${cov-ready} in bozza · ${gap} scoperte</div></div>`;
-      let curM='';
+      html+=`<div style="display:flex;gap:8px;margin:2px 0 8px">
+        <span class="chip ${covView==='cal'?'on':''}" style="cursor:pointer" onclick="covView='cal';renderSerate()">📅 Calendario</span>
+        <span class="chip ${covView==='list'?'on':''}" style="cursor:pointer" onclick="covView='list';renderSerate()">Lista</span></div>`;
+      if(covView==='cal'){ html+=coverageCalendar(days); }
+      else { let curM='';
       days.forEach(x=>{const dt=new Date(x.date+'T00:00:00'),m=dt.toLocaleDateString('it-IT',{month:'long',year:'numeric'});
         if(m!==curM){curM=m;html+=`<div class="label" style="margin:18px 0 9px;text-transform:capitalize">${m}</div>`;}
-        if(x.serata){const a=assetto(x.serata);
+        if(x.serata){const a=assetto(x.serata),org=x.serata.organizzatore_id?S.contatti.find(c=>c.id===x.serata.organizzatore_id):null;
           html+=`<div class="card tap" onclick="openSerata(${x.serata.id})" style="padding:11px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
-            <div style="min-width:0"><div style="font-size:14px;font-weight:500;text-transform:capitalize">${esc(fmtShort(x.date))} ${gateAperto(x.serata)?'<span style="color:#f87171">•</span>':''}</div><div class="dim" style="font-size:12px">${esc(tipById(x.serata.tipologia_id)?.nome||'—')} · ${a.totCons}/${a.cap}</div></div>
+            <div style="min-width:0"><div style="font-size:14px;font-weight:500;text-transform:capitalize">${esc(fmtShort(x.date))} ${org?'<span class="dim" style="font-weight:400">· '+esc(org.nome)+'</span>':''} ${gateAperto(x.serata)?'<span style="color:#f87171">•</span>':''}</div><div class="dim" style="font-size:12px">${esc(tipById(x.serata.tipologia_id)?.nome||'—')} · ${a.totCons}/${a.cap}</div></div>
             <span class="pill" style="background:${x.serata.stato==='confermata'?'var(--accent-soft)':'var(--surface2)'};color:${x.serata.stato==='confermata'?'var(--accent)':'var(--text2)'}">${x.serata.stato}</span></div>`;
         } else {
           html+=`<div class="card" style="padding:11px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;border-style:dashed;opacity:.8">
@@ -408,6 +412,7 @@ function renderSerate(){
             <button class="btn btn-sm btn-ghost" onclick="quickCreate('${x.date}')">+ Crea</button></div>`;
         }
       });
+      }
     }
   } else if(serateMode==='todo'){
     const assignedIds=[...new Set(S.todo.map(t=>t.assegnato_id).filter(Boolean))];
@@ -443,6 +448,43 @@ function renderSerate(){
   html+=`</div>`; $('#view').innerHTML=html;
 }
 function quickCreate(date){openSerata();const e=document.getElementById('f_data');if(e)e.value=date;}
+function coverageCalendar(days){
+  const byDate={}; days.forEach(x=>byDate[x.date]=x);
+  const months=[...new Set(days.map(x=>x.date.slice(0,7)))].sort();
+  const wd=['L','M','M','G','V','S','D']; let h='';
+  months.forEach(ym=>{
+    const [Y,Mo]=ym.split('-').map(Number);
+    const first=new Date(Y,Mo-1,1), dim=new Date(Y,Mo,0).getDate(), lead=(first.getDay()+6)%7;
+    const title=first.toLocaleDateString('it-IT',{month:'long',year:'numeric'});
+    h+=`<div class="label" style="margin:18px 0 8px;text-transform:capitalize">${title}</div>`;
+    h+=`<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:4px">`+wd.map(d=>`<div style="text-align:center;font-size:10px;color:var(--muted);font-weight:600">${d}</div>`).join('')+`</div>`;
+    h+=`<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">`;
+    for(let i=0;i<lead;i++)h+=`<div></div>`;
+    for(let d=1;d<=dim;d++){
+      const ds=ym+'-'+String(d).padStart(2,'0'), cell=byDate[ds];
+      if(!cell){
+        h+=`<div style="min-height:60px;border-radius:10px;border:1px solid var(--border);padding:5px 6px;opacity:.32"><div style="font-size:12px;color:var(--muted)">${d}</div></div>`;
+      } else if(cell.serata){
+        const s=cell.serata, a=assetto(s), conf=s.stato==='confermata';
+        const org=s.organizzatore_id?S.contatti.find(c=>c.id===s.organizzatore_id):null;
+        const nm=org?org.nome:(tipById(s.tipologia_id)?.nome||'—'), gate=gateAperto(s);
+        h+=`<div class="tap" onclick="openSerata(${s.id})" style="min-height:60px;border-radius:10px;cursor:pointer;padding:5px 6px;display:flex;flex-direction:column;gap:2px;background:${conf?'var(--accent-soft)':'var(--surface2)'};border:1px solid ${conf?'var(--accent-line)':'var(--border)'}">
+          <div style="display:flex;justify-content:space-between;align-items:center;line-height:1"><span style="font-size:12px;font-weight:700">${d}</span>${gate?'<span style="color:#f87171;font-size:9px">●</span>':`<span style="width:6px;height:6px;border-radius:50%;background:${conf?'var(--accent)':'var(--muted)'}"></span>`}</div>
+          <div style="font-size:9px;line-height:1.15;font-weight:600;color:${org?'var(--text)':'var(--text2)'};display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${esc(nm)}</div>
+          <div style="font-size:9px;color:var(--muted);margin-top:auto">${a.totCons}/${a.cap}</div></div>`;
+      } else {
+        h+=`<div class="tap" onclick="quickCreate('${ds}')" style="min-height:60px;border-radius:10px;cursor:pointer;padding:5px 6px;border:1px dashed var(--border2);display:flex;flex-direction:column"><div style="font-size:12px;font-weight:600;color:var(--text2)">${d}</div><div style="margin:auto;font-size:15px;color:var(--muted)">+</div></div>`;
+      }
+    }
+    h+=`</div>`;
+  });
+  h+=`<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:14px;font-size:11px;color:var(--muted)">
+    <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:var(--accent-soft);border:1px solid var(--accent-line)"></span>confermata</span>
+    <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:var(--surface2);border:1px solid var(--border)"></span>bozza</span>
+    <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;border:1px dashed var(--border2)"></span>scoperto</span>
+    <span style="display:flex;align-items:center;gap:5px"><span style="color:#f87171">●</span>licenza da chiudere</span></div>`;
+  return h;
+}
 
 // ---- To-do / programmazione interna ----
 function todoRow(t,col){
