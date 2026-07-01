@@ -85,7 +85,7 @@ select.input{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
 #gate{position:fixed;inset:0;z-index:60;background:radial-gradient(120% 120% at 50% 0%,#141018 0%,#08080b 60%);display:flex;align-items:center;justify-content:center;padding:26px}
 /* nav */
 #nav{position:fixed;bottom:0;left:0;right:0;z-index:40;background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:blur(18px);border-top:1px solid var(--border)}
-#nav .inner{max-width:640px;margin:0 auto;display:grid;grid-template-columns:repeat(6,1fr)}
+#nav .inner{max-width:640px;margin:0 auto;display:grid;grid-template-columns:repeat(7,1fr)}
 .tabbtn span{font-size:9.5px}
 .tabbtn{background:none;border:0;color:var(--muted);padding:10px 0 14px;display:flex;flex-direction:column;align-items:center;gap:4px;font-size:10px;letter-spacing:.03em;cursor:pointer;font-family:inherit;transition:color .2s}
 .tabbtn svg{width:22px;height:22px;stroke-width:1.6}
@@ -134,6 +134,7 @@ header.top{position:sticky;top:0;z-index:30;background:color-mix(in srgb,var(--b
     <button class="tabbtn" data-tab="personale"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><path d="M16 5.5a3 3 0 0 1 0 5.6M18 20a5 5 0 0 0-3-4.6"/></svg>Team</button>
     <button class="tabbtn" data-tab="magazzino"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4Z"/><path d="M3 7v10l9 4 9-4V7"/><path d="M12 11.2V21"/></svg>Magazzino</button>
     <button class="tabbtn" data-tab="contatti"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="3"/><circle cx="12" cy="10" r="2.6"/><path d="M8 17a4 4 0 0 1 8 0"/></svg>Rubrica</button>
+    <button class="tabbtn" data-tab="note"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M5 3h9l5 5v13a0 0 0 0 1 0 0H5z"/><path d="M14 3v5h5"/><path d="M8 13h8M8 17h5"/></svg>Note</button>
     <button class="tabbtn" data-tab="setup"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/></svg>Setup</button>
   </div>
 </nav>
@@ -183,7 +184,7 @@ function openApp(){
 }
 
 // ================= STATE =================
-let S={tipologie:[],ruoli:[],tipRuoli:[],personale:[],serate:[],assegn:[],contatti:[],config:{},articoli:[],movimenti:[],prodotti:[],ricette:[],vendite:[],costiSerata:[],incassiExtra:[],todo:[]};
+let S={tipologie:[],ruoli:[],tipRuoli:[],personale:[],serate:[],assegn:[],contatti:[],config:{},articoli:[],movimenti:[],prodotti:[],ricette:[],vendite:[],costiSerata:[],incassiExtra:[],todo:[],note:[],file:[]};
 let TAB='home';
 async function boot(){
   if(!initDb()){let n=0;await new Promise(r=>{const t=setInterval(()=>{if(initDb()||++n>24){clearInterval(t);r();}},250);});}
@@ -191,7 +192,7 @@ async function boot(){
   await reloadAll(); subscribe(); render();
 }
 async function reloadAll(){
-  const [tip,ruo,tr,per,ser,ass,con,cfgr,arts,movs,pro,ric,ven,cos,inc,tdo]=await Promise.all([
+  const [tip,ruo,tr,per,ser,ass,con,cfgr,arts,movs,pro,ric,ven,cos,inc,tdo,nte,fls]=await Promise.all([
     db.from('tipologie').select('*').order('ordine'),
     db.from('ruoli').select('*').order('id'),
     db.from('tipologia_ruoli').select('*'),
@@ -208,6 +209,8 @@ async function reloadAll(){
     db.from('costi_serata').select('*'),
     db.from('incassi_extra').select('*'),
     db.from('todo').select('*').order('created_at'),
+    db.from('note').select('*').order('updated_at',{ascending:false}),
+    db.from('file').select('*').order('created_at',{ascending:false}),
   ]);
   S.tipologie=tip.data||[];S.ruoli=ruo.data||[];S.tipRuoli=tr.data||[];
   S.personale=per.data||[];S.serate=ser.data||[];S.assegn=ass.data||[];S.contatti=con.data||[];
@@ -215,10 +218,10 @@ async function reloadAll(){
   S.articoli=(arts&&arts.data)||[]; S.movimenti=(movs&&movs.data)||[];
   S.prodotti=(pro&&pro.data)||[]; S.ricette=(ric&&ric.data)||[]; S.vendite=(ven&&ven.data)||[];
   S.costiSerata=(cos&&cos.data)||[]; S.incassiExtra=(inc&&inc.data)||[];
-  S.todo=(tdo&&tdo.data)||[];
+  S.todo=(tdo&&tdo.data)||[]; S.note=(nte&&nte.data)||[]; S.file=(fls&&fls.data)||[];
 }
 function subscribe(){
-  ['tipologie','ruoli','tipologia_ruoli','personale','serate','serata_personale','contatti','config','articoli','movimenti','prodotti','ricette','vendite','costi_serata','incassi_extra','todo'].forEach(t=>{
+  ['tipologie','ruoli','tipologia_ruoli','personale','serate','serata_personale','contatti','config','articoli','movimenti','prodotti','ricette','vendite','costi_serata','incassi_extra','todo','note','file'].forEach(t=>{
     db.channel('rt_'+t).on('postgres_changes',{event:'*',schema:'public',table:t},async()=>{
       await reloadAll(); render();
       const s=document.getElementById('synced'); s.textContent='● aggiornato'; setTimeout(()=>s.textContent='● live',1400);
@@ -269,8 +272,8 @@ document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>{
   document.getElementById('fab').style.display=(TAB==='home'||TAB==='setup')?'none':'flex';
   render();
 }));
-function fabAction(){ if(TAB==='serate'){serateMode==='todo'?openTodo():openSerata();} else if(TAB==='personale')openPers(); else if(TAB==='contatti')openCont(); else if(TAB==='magazzino'){magazzinoMode==='listino'?openProdotto():openArticolo();} }
-function render(){({home:renderHome,serate:renderSerate,personale:renderPersonale,contatti:renderContatti,setup:renderSetup,magazzino:renderMagazzino}[TAB])();}
+function fabAction(){ if(TAB==='serate'){serateMode==='todo'?openTodo():openSerata();} else if(TAB==='personale')openPers(); else if(TAB==='contatti')openCont(); else if(TAB==='magazzino'){magazzinoMode==='listino'?openProdotto():openArticolo();} else if(TAB==='note'){noteMode==='file'?document.getElementById('fileInput').click():openNota();} }
+function render(){({home:renderHome,serate:renderSerate,personale:renderPersonale,contatti:renderContatti,setup:renderSetup,magazzino:renderMagazzino,note:renderNote}[TAB])();}
 
 // ================= GAUGE =================
 function gauge(cons,cap){
@@ -420,11 +423,17 @@ function quickCreate(date){openSerata();const e=document.getElementById('f_data'
 // ---- To-do / programmazione interna ----
 function todoRow(t,col){
   const s=t.serata_id?S.serate.find(x=>x.id===t.serata_id):null;
+  const ap=t.assegnato_id?S.personale.find(x=>x.id===t.assegnato_id):null;
   const overdue=t.scadenza&&!t.fatto&&t.scadenza<today();
+  const meta=[];
+  if(t.scadenza)meta.push(`<span style="${overdue?'color:#f87171':''}">${esc(fmtShort(t.scadenza))}${overdue?' · scaduto':''}</span>`);
+  if(ap)meta.push('→ '+esc(ap.nome));
+  if(s)meta.push('serata '+esc(fmtShort(s.data)));
+  if(t.note)meta.push(esc(t.note));
   return `<div class="card" style="padding:11px 13px;margin-bottom:8px;display:flex;align-items:center;gap:11px">
     <span onclick="toggleTodo(${t.id},${t.fatto?'false':'true'})" style="cursor:pointer;width:22px;height:22px;border-radius:7px;border:2px solid ${t.fatto?'var(--accent)':'var(--border2)'};background:${t.fatto?'var(--accent)':'transparent'};flex:none;display:flex;align-items:center;justify-content:center;color:#0a0a0d;font-size:13px;font-weight:700">${t.fatto?'✓':''}</span>
-    <div style="flex:1;min-width:0" onclick="openTodo(${t.id})"><div style="font-size:14px;${t.fatto?'text-decoration:line-through;color:var(--muted)':''}">${esc(t.testo)}</div>
-    ${(t.scadenza||s||t.note)?`<div class="dim" style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t.scadenza?`<span style="${overdue?'color:#f87171':''}">${esc(fmtShort(t.scadenza))}${overdue?' · scaduto':''}</span>`:''}${s?(t.scadenza?' · ':'')+'serata '+esc(fmtShort(s.data)):''}${t.note?' · '+esc(t.note):''}</div>`:''}</div>
+    <div style="flex:1;min-width:0" onclick="openTodo(${t.id})"><div style="font-size:14px;${t.fatto?'text-decoration:line-through;color:var(--muted)':''}">${esc(t.testo)}</div>${meta.length?`<div class="dim" style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${meta.join(' · ')}</div>`:''}</div>
+    ${ap?`<div class="avatar" style="width:26px;height:26px;border-radius:8px;font-size:11px">${esc(initials(ap.nome))}</div>`:''}
     <span style="width:9px;height:9px;border-radius:50%;background:${col};flex:none"></span>
   </div>`;
 }
@@ -437,13 +446,56 @@ function openTodo(id){const t=id?{...S.todo.find(x=>x.id===id)}:{testo:'',priori
       <div><div class="label" style="margin-bottom:6px">Scadenza</div><input id="td_scad" type="date" class="input" value="${t.scadenza||''}"></div>
       <div><div class="label" style="margin-bottom:6px">Serata collegata</div><select id="td_ser" class="input"><option value="">—</option>${S.serate.map(s=>`<option value="${s.id}" ${t.serata_id===s.id?'selected':''}>${esc(fmtShort(s.data))}</option>`).join('')}</select></div>
     </div>
+    <div class="field"><div class="label" style="margin-bottom:6px">Assegnato a</div><select id="td_ass" class="input"><option value="">— nessuno —</option>${S.personale.filter(p=>p.attivo!==false).map(p=>`<option value="${p.id}" ${t.assegnato_id===p.id?'selected':''}>${esc(p.nome)}</option>`).join('')}</select></div>
     <div class="field"><textarea id="td_note" rows="2" class="input" placeholder="Note">${esc(t.note)}</textarea></div>
     <div style="display:flex;gap:8px"><button onclick="saveTodo(${id||'null'})" class="btn btn-accent" style="flex:1">Salva</button>${id?`<button onclick="delTodo(${id})" class="btn btn-danger">Elimina</button>`:''}</div>`;
   showModal();
 }
-async function saveTodo(id){const pe=document.querySelector('.tdprio.on');const o={testo:$('#td_testo').value.trim(),priorita:pe?pe.dataset.prio:'media',scadenza:$('#td_scad').value||null,serata_id:$('#td_ser').value?+$('#td_ser').value:null,note:$('#td_note').value};if(!o.testo)return alert('Scrivi il to-do');if(id)await db.from('todo').update(o).eq('id',id);else await db.from('todo').insert(o);await reloadAll();hideModal();render();}
+async function saveTodo(id){const pe=document.querySelector('.tdprio.on');const o={testo:$('#td_testo').value.trim(),priorita:pe?pe.dataset.prio:'media',scadenza:$('#td_scad').value||null,serata_id:$('#td_ser').value?+$('#td_ser').value:null,assegnato_id:$('#td_ass').value?+$('#td_ass').value:null,note:$('#td_note').value};if(!o.testo)return alert('Scrivi il to-do');if(id)await db.from('todo').update(o).eq('id',id);else await db.from('todo').insert(o);await reloadAll();hideModal();render();}
 async function toggleTodo(id,val){await db.from('todo').update({fatto:val}).eq('id',id);await reloadAll();render();}
 async function delTodo(id){await db.from('todo').delete().eq('id',id);await reloadAll();hideModal();render();}
+
+// ================= NOTE & FILE (spazio condiviso) =================
+let noteMode='appunti';
+function fmtDateTime(s){if(!s)return'';const d=new Date(s);return d.toLocaleDateString('it-IT',{day:'2-digit',month:'short'})+' '+d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'});}
+function fileExt(n){const m=(n||'').split('.').pop();return (m&&m.length<=4?m:'FILE').toUpperCase();}
+function fmtSize(b){b=Number(b||0);return b>=1048576?(b/1048576).toFixed(1)+' MB':Math.round(b/1024)+' KB';}
+function renderNote(){
+  let html=`<div class="fade"><div class="h1 serif" style="margin-bottom:14px">Note</div>
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <span class="chip ${noteMode==='appunti'?'on':''}" style="cursor:pointer" onclick="noteMode='appunti';renderNote()">Appunti${S.note.length?' · '+S.note.length:''}</span>
+      <span class="chip ${noteMode==='file'?'on':''}" style="cursor:pointer" onclick="noteMode='file';renderNote()">File${S.file.length?' · '+S.file.length:''}</span>
+    </div>`;
+  if(noteMode==='appunti'){
+    html+= S.note.length? S.note.map(n=>`<div class="card tap" onclick="openNota(${n.id})" style="padding:14px;margin-bottom:9px">
+        <div style="font-size:15px;font-weight:500">${esc(n.titolo||'Senza titolo')}</div>
+        <div class="dim" style="font-size:12px;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc((n.contenuto||'').replace(/\n/g,' ').slice(0,90))||'—'}</div>
+        <div class="dim" style="font-size:11px;margin-top:6px">${esc(fmtDateTime(n.updated_at))}</div>
+      </div>`).join('') : `<div class="card" style="padding:20px" class="muted">Nessun appunto. Tocca + per creare la prima nota condivisa col team.</div>`;
+  } else {
+    html+=`<input type="file" id="fileInput" style="display:none" onchange="uploadFile(this)">
+      <button onclick="document.getElementById('fileInput').click()" class="btn btn-ghost" style="width:100%;margin-bottom:14px">+ Carica un file</button>`;
+    html+= S.file.length? S.file.map(f=>`<div class="card" style="padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:11px">
+        <div class="avatar" style="border-radius:9px;font-size:10px">${esc(fileExt(f.nome))}</div>
+        <div style="flex:1;min-width:0"><a href="${esc(f.url)}" target="_blank" rel="noopener" style="font-size:14px;font-weight:500;color:var(--text);text-decoration:none">${esc(f.nome)}</a><div class="dim" style="font-size:12px">${fmtSize(f.size)}</div></div>
+        <a href="${esc(f.url)}" target="_blank" rel="noopener" class="btn btn-sm btn-ghost">Apri</a>
+        <button onclick="delFile(${f.id})" class="btn btn-sm btn-ghost" style="color:#f87171">×</button>
+      </div>`).join('') : `<div class="card" style="padding:20px" class="muted">Nessun file. Carica documenti, PDF o immagini da condividere col team.</div>`;
+  }
+  html+=`</div>`;$('#view').innerHTML=html;
+}
+function openNota(id){const n=id?{...S.note.find(x=>x.id===id)}:{titolo:'',contenuto:''};
+  $('#modalbody').innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:2px 0 14px"><div class="serif" style="font-size:19px">${id?'Nota':'Nuova nota'}</div><button onclick="hideModal()" class="btn btn-sm btn-ghost">Chiudi</button></div>
+    <input id="nt_titolo" class="input" placeholder="Titolo" value="${esc(n.titolo)}" style="font-size:17px;font-weight:600;margin-bottom:10px">
+    <textarea id="nt_cont" class="input" placeholder="Scrivi qui… appunti, checklist, idee, procedure" style="min-height:320px;line-height:1.6">${esc(n.contenuto)}</textarea>
+    <div style="display:flex;gap:8px;margin-top:14px"><button onclick="saveNota(${id||'null'})" class="btn btn-accent" style="flex:1">Salva</button>${id?`<button onclick="delNota(${id})" class="btn btn-danger">Elimina</button>`:''}</div>`;
+  showModal();
+}
+async function saveNota(id){const o={titolo:$('#nt_titolo').value.trim(),contenuto:$('#nt_cont').value,updated_at:new Date().toISOString()};if(!o.titolo&&!o.contenuto)return alert('Scrivi un titolo o del contenuto');if(id)await db.from('note').update(o).eq('id',id);else await db.from('note').insert(o);await reloadAll();hideModal();render();}
+async function delNota(id){if(confirm('Eliminare la nota?')){await db.from('note').delete().eq('id',id);await reloadAll();hideModal();render();}}
+async function uploadFile(input){const f=input.files&&input.files[0];if(!f)return;const syn=document.getElementById('synced');if(syn)syn.textContent='● caricamento…';const path=Date.now()+'_'+f.name.replace(/[^\w.\-]/g,'_');const up=await db.storage.from('files').upload(path,f);if(up.error){alert('Errore upload: '+up.error.message);if(syn)syn.textContent='● live';return;}const pub=db.storage.from('files').getPublicUrl(path);await db.from('file').insert({nome:f.name,path:path,url:pub.data.publicUrl,size:f.size});await reloadAll();if(syn)syn.textContent='● live';render();}
+async function delFile(id){const f=S.file.find(x=>x.id===id);if(!f)return;if(!confirm('Eliminare il file?'))return;if(f.path)await db.storage.from('files').remove([f.path]);await db.from('file').delete().eq('id',id);await reloadAll();render();}
 function openSerata(id){
   const s=id?{...S.serate.find(x=>x.id===id)}:{data:today(),tipologia_id:S.tipologie[0]?.id,stato:'bozza',capienza_attesa:'bassa',cena_strutturata:false,pista_attiva:false,programmazione:'dj_resident',pressione_cabanas:'scarica',modif_hostess:false,modif_tecnico:false,siae_ok:false,pubblico_spettacolo_ok:false,note:''};
   drawSerata(s,id); showModal();
