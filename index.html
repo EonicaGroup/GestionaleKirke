@@ -266,6 +266,7 @@ async function setCfg(k,v){await db.from('config').upsert({chiave:k,valore:Strin
 function toggleDay(n){let g=operDays();g=g.includes(n)?g.filter(x=>x!==n):g.concat(n);setCfg('giorni_operativi',g.join(','));}
 async function genGaps(){const g=seasonDays().filter(x=>!x.serata);if(!g.length)return;const tid=defTip();if(!tid)return alert('Crea prima almeno una tipologia in Setup.');if(!confirm('Creo '+g.length+' serate in bozza per coprire i giorni scoperti della stagione? Le compili poi una a una.'))return;const rows=g.map(x=>({data:x.date,tipologia_id:tid,stato:'bozza',capienza_attesa:'bassa',programmazione:'dj_resident',pressione_cabanas:'scarica'}));await db.from('serate').insert(rows);await reloadAll();render();}
 function gotoSetup(){TAB='setup';document.querySelectorAll('.tabbtn').forEach(x=>x.classList.toggle('active',x.dataset.tab==='setup'));document.getElementById('fab').style.display='none';render();}
+function nextOperDate(){const days=seasonDays();const s=cfg('season_start','');const ref=(s&&s>today())?s:today();const f=days.find(x=>x.date>=ref);return f?f.date:(ref||today());}
 
 // ================= NAV =================
 document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>{
@@ -293,7 +294,9 @@ function gauge(cons,cap){
 // ================= HOME =================
 function renderHome(){
   const up=S.serate.filter(s=>s.data>=today());
-  const next=up[0];
+  const _sref=(cfg('season_start','')&&cfg('season_start','')>today())?cfg('season_start',''):today();
+  const upv=S.serate.filter(s=>s.data>=_sref).sort((a,b)=>(a.data||'').localeCompare(b.data||''));
+  const next=upv[0];
   const alerts=[];
   up.forEach(s=>{const tit=fmtShort(s.data)+' · '+(tipById(s.tipologia_id)?.nome||'—');
     if(gateAperto(s))alerts.push(['red',tit,'Licenze mancanti (SIAE / pubblico spettacolo)']);
@@ -355,7 +358,7 @@ function renderHome(){
     </div>`).join('')+`</div>`;
   } else html+=`<div class="card" style="padding:16px;font-size:13px" class="muted">Tutto in ordine.</div>`;
   html+=`<div class="label" style="margin:22px 0 10px">Prossime</div>`+
-    (up.slice(1,6).map(rowSerata).join('')||`<div class="dim" style="font-size:13px">—</div>`);
+    (upv.slice(1,6).map(rowSerata).join('')||`<div class="dim" style="font-size:13px">—</div>`);
   html+=`</div>`;
   $('#view').innerHTML=html;
 }
@@ -588,7 +591,7 @@ async function moveItem(kind,id,dest){
   await reloadAll();hideModal();render();
 }
 function openSerata(id){
-  const s=id?{...S.serate.find(x=>x.id===id)}:{data:today(),tipologia_id:S.tipologie[0]?.id,stato:'bozza',capienza_attesa:'bassa',cena_strutturata:false,pista_attiva:false,programmazione:'dj_resident',pressione_cabanas:'scarica',modif_hostess:false,modif_tecnico:false,siae_ok:false,pubblico_spettacolo_ok:false,note:''};
+  const s=id?{...S.serate.find(x=>x.id===id)}:{data:nextOperDate(),tipologia_id:S.tipologie[0]?.id,stato:'bozza',capienza_attesa:'bassa',cena_strutturata:false,pista_attiva:false,programmazione:'dj_resident',pressione_cabanas:'scarica',modif_hostess:false,modif_tecnico:false,siae_ok:false,pubblico_spettacolo_ok:false,note:''};
   drawSerata(s,id); showModal();
 }
 function opt(cur,val,lab){return `<option value="${val}" ${cur===val?'selected':''}>${lab}</option>`;}
