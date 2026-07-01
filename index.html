@@ -370,7 +370,7 @@ function rowSerata(s){const a=assetto(s);
 }
 
 // ================= SERATE =================
-let serateFilter='tutte', serateMode='copertura';
+let serateFilter='tutte', serateMode='copertura', todoFilter='tutti';
 function renderSerate(){
   let html=`<div class="fade"><div class="h1 serif" style="margin-bottom:14px">Programmazione</div>
     <div style="display:flex;gap:8px;margin-bottom:16px;overflow-x:auto;padding-bottom:2px">
@@ -407,7 +407,16 @@ function renderSerate(){
       });
     }
   } else if(serateMode==='todo'){
-    const open=S.todo.filter(t=>!t.fatto), done=S.todo.filter(t=>t.fatto);
+    const assignedIds=[...new Set(S.todo.map(t=>t.assegnato_id).filter(Boolean))];
+    const fp=assignedIds.map(x=>S.personale.find(p=>p.id===x)).filter(Boolean);
+    const hasUn=S.todo.some(t=>!t.assegnato_id);
+    if(fp.length||hasUn)html+=`<div style="display:flex;gap:8px;overflow-x:auto;margin-bottom:14px;padding-bottom:2px">
+      <span class="chip ${todoFilter==='tutti'?'on':''}" style="cursor:pointer" onclick="todoFilter='tutti';renderSerate()">Tutti</span>
+      ${fp.map(p=>`<span class="chip ${todoFilter===p.id?'on':''}" style="cursor:pointer" onclick="todoFilter=${p.id};renderSerate()">${esc(p.nome)}</span>`).join('')}
+      ${hasUn?`<span class="chip ${todoFilter==='nessuno'?'on':''}" style="cursor:pointer" onclick="todoFilter='nessuno';renderSerate()">Non assegnati</span>`:''}
+    </div>`;
+    const mtc=t=>todoFilter==='tutti'||(todoFilter==='nessuno'?!t.assegnato_id:t.assegnato_id===todoFilter);
+    const open=S.todo.filter(t=>!t.fatto&&mtc(t)), done=S.todo.filter(t=>t.fatto&&mtc(t));
     const prio={alta:'Priorità alta',media:'Priorità media',bassa:'Priorità bassa'}, pcol={alta:'#f87171',media:'var(--accent)',bassa:'var(--muted)'};
     Object.keys(prio).forEach(pk=>{const lst=open.filter(t=>(t.priorita||'media')===pk);if(!lst.length)return;
       html+=`<div class="label" style="margin:16px 0 9px">${prio[pk]}</div>`+lst.map(t=>todoRow(t,pcol[pk])).join('');});
