@@ -266,6 +266,7 @@ async function setCfg(k,v){await db.from('config').upsert({chiave:k,valore:Strin
 function toggleDay(n){let g=operDays();g=g.includes(n)?g.filter(x=>x!==n):g.concat(n);setCfg('giorni_operativi',g.join(','));}
 async function genGaps(){const g=seasonDays().filter(x=>!x.serata);if(!g.length)return;const tid=defTip();if(!tid)return alert('Crea prima almeno una tipologia in Setup.');if(!confirm('Creo '+g.length+' serate in bozza per coprire i giorni scoperti della stagione? Le compili poi una a una.'))return;const rows=g.map(x=>({data:x.date,tipologia_id:tid,stato:'bozza',capienza_attesa:'bassa',programmazione:'dj_resident',pressione_cabanas:'scarica'}));await db.from('serate').insert(rows);await reloadAll();render();}
 function gotoSetup(){TAB='setup';document.querySelectorAll('.tabbtn').forEach(x=>x.classList.toggle('active',x.dataset.tab==='setup'));document.getElementById('fab').style.display='none';render();}
+function gotoTab(tab,mode){TAB=tab;document.querySelectorAll('.tabbtn').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));document.getElementById('fab').style.display=(tab==='home'||tab==='setup')?'none':'flex';if(tab==='serate'&&mode){serateMode=mode;}render();}
 function nextOperDate(){const days=seasonDays();const s=cfg('season_start','');const ref=(s&&s>today())?s:today();const f=days.find(x=>x.date>=ref);return f?f.date:(ref||today());}
 
 // ================= NAV =================
@@ -297,18 +298,15 @@ function renderHome(){
   const _sref=(cfg('season_start','')&&cfg('season_start','')>today())?cfg('season_start',''):today();
   const upv=S.serate.filter(s=>s.data>=_sref).sort((a,b)=>(a.data||'').localeCompare(b.data||''));
   const next=upv[0];
-  const alerts=[];
-  up.forEach(s=>{const tit=fmtShort(s.data)+' · '+(tipById(s.tipologia_id)?.nome||'—');
-    if(gateAperto(s))alerts.push(['red',tit,'Licenze mancanti (SIAE / pubblico spettacolo)']);
-    if(s.stato==='confermata'&&assegnati(s.id).length<assetto(s).totMin)alerts.push(['amber',tit,'Organico sotto il minimo ('+assegnati(s.id).length+'/'+assetto(s).totMin+')']);
-    if(s.stato==='confermata'&&s.pressione_cabanas==='piena'&&!s.modif_hostess)alerts.push(['amber',tit,'Cabanas piene senza hostess']);
-  });
-  S.articoli.filter(a=>a.attivo!==false&&daOrdinare(a)>0).forEach(a=>alerts.push(['amber','Magazzino · '+a.nome,'Sotto soglia: da ordinare ~'+daOrdinare(a)+' '+(a.unita||'')]));
-  const tdUrg=S.todo.filter(t=>!t.fatto&&(t.priorita==='alta'||(t.scadenza&&t.scadenza<today())));
-  if(tdUrg.length)alerts.unshift(['red',tdUrg.length+(tdUrg.length===1?' to-do urgente':' to-do urgenti'),tdUrg.slice(0,3).map(t=>t.testo).join(' · ')]);
   const sd=seasonDays(), covN=sd.filter(x=>x.serata).length, gapN=sd.length-covN, readyN=sd.filter(x=>x.serata&&x.serata.stato!=='bozza').length;
+  const bozze=sd.filter(x=>x.serata&&x.serata.stato==='bozza').map(x=>x.serata);
+  const senzaLic=up.filter(s=>gateAperto(s));
+  const sottoOrg=up.filter(s=>s.stato==='confermata'&&assegnati(s.id).length<assetto(s).totMin);
+  const cabana=up.filter(s=>s.stato==='confermata'&&s.pressione_cabanas==='piena'&&!s.modif_hostess);
+  const tdUrg=S.todo.filter(t=>!t.fatto&&(t.priorita==='alta'||(t.scadenza&&t.scadenza<today())));
+  const magBassi=S.articoli.filter(a=>a.attivo!==false&&daOrdinare(a)>0);
   const fuori=up.filter(s=>!sd.some(x=>x.serata&&x.serata.id===s.id));
-  if(fuori.length)alerts.push(['amber',fuori.length+(fuori.length===1?' serata fuori calendario':' serate fuori calendario'),'In date non operative o fuori stagione: '+fuori.slice(0,4).map(s=>fmtShort(s.data)).join(', ')]);
+  const nIssues=(bozze.length?1:0)+(senzaLic.length?1:0)+(sottoOrg.length?1:0)+(cabana.length?1:0)+(tdUrg.length?1:0)+(magBassi.length?1:0)+(gapN?1:0)+(fuori.length?1:0);
   let html=`<div class="fade">
     <div class="label">${new Date().toLocaleDateString('it-IT',{weekday:'long',day:'numeric',month:'long'})}</div>
     <div class="h1 serif" style="margin:2px 0 20px">Buonasera.</div>`;
@@ -350,13 +348,32 @@ function renderHome(){
   </div>`;
   const perTip=S.tipologie.map(t=>{const ls=S.serate.filter(s=>s.tipologia_id===t.id);return {nome:t.nome,e:econStagione(ls),n:ls.length};}).filter(x=>x.n>0&&(x.e.ricavi>0||x.e.margine!==0));
   if(perTip.length){html+=`<div class="label" style="margin:22px 0 10px">Margine per tipologia</div><div class="card divide">`+perTip.map(x=>`<div style="display:flex;justify-content:space-between;padding:11px 14px;font-size:13px"><span>${esc(x.nome)} <span class="dim">· ${x.n}</span></span><span style="color:${x.e.margine>=0?'var(--accent)':'#f87171'}">${eur(x.e.margine)}</span></div>`).join('')+`</div>`;}
-  html+=`<div class="label" style="margin:22px 0 10px">Attenzione${alerts.length?' · '+alerts.length:''}</div>`;
-  if(alerts.length){html+=`<div class="card divide">`+alerts.map(a=>`
-    <div style="display:flex;gap:11px;padding:13px 15px;align-items:flex-start">
-      <span style="margin-top:5px;width:7px;height:7px;border-radius:50%;flex:none;background:${a[0]==='red'?'#f87171':'var(--accent)'}"></span>
-      <div><div style="font-size:13px;font-weight:500">${esc(a[1])}</div><div class="dim" style="font-size:12px">${esc(a[2])}</div></div>
-    </div>`).join('')+`</div>`;
-  } else html+=`<div class="card" style="padding:16px;font-size:13px" class="muted">Tutto in ordine.</div>`;
+  html+=`<div class="label" style="margin:22px 0 10px">Da gestire${nIssues?' · '+nIssues:''}</div>`;
+  if(!nIssues){ html+=`<div class="card" style="padding:16px;font-size:13px;border-left:3px solid var(--accent)"><b>Tutto in ordine.</b> <span class="dim">Nessuna criticità aperta al momento.</span></div>`; }
+  else {
+    if(bozze.length){
+      const cap=14, ch=bozze.slice(0,cap).map(serataChip); if(bozze.length>cap)ch.push(moreChip(bozze.length-cap,"gotoTab('serate','copertura')"));
+      html+=`<div class="card" style="padding:15px;margin-bottom:10px;border-left:3px solid #f87171;position:relative;overflow:hidden">
+        <div style="position:absolute;inset:0;background:radial-gradient(120% 100% at 100% 0,rgba(239,68,68,.10),transparent 60%)"></div>
+        <div style="position:relative">
+          <div class="label" style="color:#f87171">Priorità · confermare le serate</div>
+          <div class="serif" style="font-size:19px;margin:5px 0 2px">${readyN}<span class="dim" style="font-size:14px">/${sd.length}</span> confermate · <span style="color:#f87171">${bozze.length} ancora in bozza</span></div>
+          <div class="dim" style="font-size:12px">Finché restano in bozza la stagione non è chiusa. Tocca una data per confermarla.</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:11px">${ch.join('')}</div>
+          <button class="btn btn-accent btn-sm" style="margin-top:12px" onclick="gotoTab('serate','copertura')">Apri il calendario →</button>
+        </div></div>`;
+    }
+    if(senzaLic.length){const cap=14,ch=senzaLic.slice(0,cap).map(serataChip);if(senzaLic.length>cap)ch.push(moreChip(senzaLic.length-cap,"gotoTab('serate','copertura')"));
+      html+=alertCard('red','⚖️',senzaLic.length+(senzaLic.length===1?' serata senza licenze':' serate senza licenze'),'SIAE / pubblico spettacolo da chiudere prima dell\'apertura.',ch);}
+    if(sottoOrg.length){const ch=sottoOrg.slice(0,14).map(serataChip);html+=alertCard('amber','👥',sottoOrg.length+(sottoOrg.length===1?' serata sotto organico':' serate sotto organico'),'Personale assegnato sotto la soglia minima.',ch);}
+    if(cabana.length){const ch=cabana.slice(0,14).map(serataChip);html+=alertCard('amber','🏖️',cabana.length+(cabana.length===1?' serata: cabanas senza hostess':' serate: cabanas senza hostess'),'Cabanas piene ma senza modificatore hostess.',ch);}
+    if(tdUrg.length){const ch=tdUrg.slice(0,10).map(t=>txtChip((t.testo||'').slice(0,28),"gotoTab('serate','todo')"));if(tdUrg.length>10)ch.push(moreChip(tdUrg.length-10,"gotoTab('serate','todo')"));
+      html+=alertCard('red','✔️',tdUrg.length+(tdUrg.length===1?' to-do urgente':' to-do urgenti'),'Priorità alta o già scaduti.',ch);}
+    if(magBassi.length){const ch=magBassi.slice(0,12).map(a=>txtChip(a.nome+' · '+daOrdinare(a)+(a.unita?(' '+a.unita):''),"gotoTab('magazzino')"));if(magBassi.length>12)ch.push(moreChip(magBassi.length-12,"gotoTab('magazzino')"));
+      html+=alertCard('amber','📦',magBassi.length+(magBassi.length===1?' articolo sotto soglia':' articoli sotto soglia'),'Da riordinare a magazzino.',ch);}
+    if(gapN){html+=alertCard('amber','📅',gapN+(gapN===1?' giorno scoperto':' giorni scoperti'),'Giorni operativi senza serata programmata.',null,`<button class="btn btn-accent btn-sm" style="flex:none" onclick="genGaps()">Colma</button>`);}
+    if(fuori.length){const ch=fuori.slice(0,14).map(serataChip);html+=alertCard('amber','⚠️',fuori.length+(fuori.length===1?' serata fuori calendario':' serate fuori calendario'),'In date non operative o fuori stagione.',ch);}
+  }
   html+=`<div class="label" style="margin:22px 0 10px">Prossime</div>`+
     (upv.slice(1,6).map(rowSerata).join('')||`<div class="dim" style="font-size:13px">—</div>`);
   html+=`</div>`;
@@ -451,6 +468,17 @@ function quickCreate(date){openSerata();const e=document.getElementById('f_data'
 const TIPCOL=['#e7b24c','#5b9bd5','#8e6fd6','#4bb573','#e07a5f','#d65db1','#41b8c4','#b0793f'];
 function tipColor(id){const i=S.tipologie.findIndex(t=>t.id===id);return TIPCOL[(i<0?0:i)%TIPCOL.length];}
 function hexA(h,a){const n=h.replace('#','');return `rgba(${parseInt(n.slice(0,2),16)},${parseInt(n.slice(2,4),16)},${parseInt(n.slice(4,6),16)},${a})`;}
+function serataChip(s){const c=tipColor(s.tipologia_id);return `<span onclick="event.stopPropagation();openSerata(${s.id})" style="cursor:pointer;font-size:11px;padding:4px 9px;border-radius:999px;background:${hexA(c,.16)};border:1px solid ${hexA(c,.5)};color:var(--text);text-transform:capitalize;white-space:nowrap">${esc(fmtShort(s.data))}</span>`;}
+function moreChip(n,oc){return `<span onclick="event.stopPropagation();${oc}" style="cursor:pointer;font-size:11px;padding:4px 9px;border-radius:999px;background:var(--surface2);border:1px solid var(--border2);color:var(--text2);white-space:nowrap">+${n} altre →</span>`;}
+function txtChip(l,oc){return `<span onclick="event.stopPropagation();${oc}" style="cursor:pointer;font-size:11px;padding:4px 9px;border-radius:999px;background:var(--surface2);border:1px solid var(--border);color:var(--text);white-space:nowrap">${esc(l)}</span>`;}
+function alertCard(sev,icon,title,desc,chips,cta){const col=sev==='red'?'#f87171':(sev==='amber'?'var(--accent)':'var(--text2)');
+  return `<div class="card" style="padding:13px 15px;margin-bottom:10px;border-left:3px solid ${col}">
+    <div style="display:flex;align-items:flex-start;gap:11px">
+      <span style="font-size:16px;line-height:1.35;flex:none">${icon}</span>
+      <div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600">${esc(title)}</div>${desc?`<div class="dim" style="font-size:12px;margin-top:2px">${esc(desc)}</div>`:''}</div>
+      ${cta||''}
+    </div>${chips&&chips.length?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">${chips.join('')}</div>`:''}
+  </div>`;}
 function coverageCalendar(days){
   const byDate={}; days.forEach(x=>byDate[x.date]=x);
   const months=[...new Set(days.map(x=>x.date.slice(0,7)))].sort();
