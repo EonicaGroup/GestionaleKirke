@@ -2615,6 +2615,20 @@ function renderSetup(){
     <select class="input" onchange="setCfg('tipologia_default',this.value)">${S.tipologie.map(t=>`<option value="${t.id}" ${defTip()===t.id?'selected':''}>${esc(t.nome)}</option>`).join('')}</select>
     <button class="btn btn-ghost" style="width:100%;margin-top:12px" onclick="genGaps()">Colma i giorni scoperti</button>
   </div>
+  <div class="label" style="margin:20px 0 10px">📲 Notifiche WhatsApp · brief automatico ore 10:00</div>
+  <div class="card" style="padding:16px;margin-bottom:14px">
+    <div class="dim" style="font-size:12px;line-height:1.6;margin-bottom:14px">Ogni mattina alle 10:00 arriva su WhatsApp il brief: serata di stasera, to-do del giorno e in ritardo, consuntivi mancanti.<br>
+    <b style="color:var(--text)">Attivazione (una volta sola, da ogni telefono):</b> salva in rubrica <b style="color:var(--accent)">+34 644 71 81 99</b> (CallMeBot) e inviagli su WhatsApp il messaggio: <i>"I allow callmebot to send me messages"</i>. Riceverai la tua <b>apikey</b>: incollala qui sotto.</div>
+    <div class="grid2 field">
+      <div><div class="label" style="margin-bottom:6px">Numero 1 (con +39)</div><input class="input" placeholder="+39333…" value="${esc(cfg('wa_num1',''))}" onchange="setCfg('wa_num1',this.value.trim())"></div>
+      <div><div class="label" style="margin-bottom:6px">API key 1</div><input class="input" placeholder="123456" value="${esc(cfg('wa_key1',''))}" onchange="setCfg('wa_key1',this.value.trim())"></div>
+    </div>
+    <div class="grid2 field">
+      <div><div class="label" style="margin-bottom:6px">Numero 2 (con +39)</div><input class="input" placeholder="+39333…" value="${esc(cfg('wa_num2',''))}" onchange="setCfg('wa_num2',this.value.trim())"></div>
+      <div><div class="label" style="margin-bottom:6px">API key 2</div><input class="input" placeholder="123456" value="${esc(cfg('wa_key2',''))}" onchange="setCfg('wa_key2',this.value.trim())"></div>
+    </div>
+    <button class="btn btn-accent" style="width:100%" onclick="testWaBrief(this)">📲 Invia brief di prova adesso</button>
+  </div>
   <div class="label" style="margin:20px 0 10px;display:flex;justify-content:space-between;align-items:center">Tipologie di serata <button class="btn btn-sm btn-ghost" onclick="openTip()">+ Nuova</button></div>`;
   S.tipologie.forEach(t=>{const rows=S.tipRuoli.filter(x=>x.tipologia_id===t.id);
     html+=`<div class="card" style="padding:14px;margin-bottom:10px">
@@ -2666,6 +2680,17 @@ function openRuolo(id){const r=id?{...S.ruoli.find(x=>x.id===id)}:{nome:'',categ
 }
 async function saveRuolo(id){const o={nome:$('#r_nome').value.trim(),categoria:$('#r_cat').value};if(!o.nome)return alert('Nome obbligatorio');if(id)await db.from('ruoli').update(o).eq('id',id);else await db.from('ruoli').insert(o);await reloadAll();hideModal();renderSetup();}
 async function delRuolo(id){if(!confirm('Eliminare il ruolo?'))return;const r=await db.from('ruoli').delete().eq('id',id);if(r.error)return alert('Impossibile: ruolo usato in qualche tipologia.');await reloadAll();hideModal();renderSetup();}
+async function testWaBrief(btn){
+  btn.disabled=true;btn.textContent='Invio…';
+  try{
+    const r=await fetch(SB_URL+'/functions/v1/wa-brief',{method:'POST',headers:{'Authorization':'Bearer '+SB_KEY,'apikey':SB_KEY,'Content-Type':'application/json'},body:JSON.stringify({test:true})});
+    const j=await r.json();
+    if(j.error)alert(j.error);
+    else if(j.sent){const ok=j.sent.filter(x=>x.ok).length;toast(ok?('📲 Inviato a '+ok+' numero/i — controlla WhatsApp'):'Invio fallito: verifica numeri e apikey');}
+    else toast('Risposta inattesa');
+  }catch(e){alert('Errore: '+e.message);}
+  btn.disabled=false;btn.textContent='📲 Invia brief di prova adesso';
+}
 function logout(){location.reload();}
 
 // ================= MODAL =================
