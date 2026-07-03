@@ -2627,6 +2627,10 @@ function renderSetup(){
       <div><div class="label" style="margin-bottom:6px">Numero 2 (con +39)</div><input class="input" placeholder="+39333…" value="${esc(cfg('wa_num2',''))}" onchange="setCfg('wa_num2',this.value.trim())"></div>
       <div><div class="label" style="margin-bottom:6px">API key 2</div><input class="input" placeholder="123456" value="${esc(cfg('wa_key2',''))}" onchange="setCfg('wa_key2',this.value.trim())"></div>
     </div>
+    <div class="grid2 field">
+      <div><div class="label" style="margin-bottom:6px">Numero 3 (con +39)</div><input class="input" placeholder="+39333…" value="${esc(cfg('wa_num3',''))}" onchange="setCfg('wa_num3',this.value.trim())"></div>
+      <div><div class="label" style="margin-bottom:6px">API key 3</div><input class="input" placeholder="123456" value="${esc(cfg('wa_key3',''))}" onchange="setCfg('wa_key3',this.value.trim())"></div>
+    </div>
     <button class="btn btn-accent" style="width:100%" onclick="testWaBrief(this)">📲 Invia brief di prova adesso</button>
   </div>
   <div class="label" style="margin:20px 0 10px;display:flex;justify-content:space-between;align-items:center">Tipologie di serata <button class="btn btn-sm btn-ghost" onclick="openTip()">+ Nuova</button></div>`;
