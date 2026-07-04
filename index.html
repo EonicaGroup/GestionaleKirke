@@ -1544,7 +1544,9 @@ function mapFloor(){
   h+=`<text x="958" y="380" font-size="10" fill="#4bb573" text-anchor="middle" transform="rotate(90 958 380)" style="letter-spacing:.28em">SENTIERO</text>
       <path d="M ${bx+14} ${by-5} l -10 5 l 10 5 z" fill="#4bb573"/>`;
   [[M.ped.x-368,M.ped.y],[M.ped.x+368,M.ped.y]].forEach(t=>{
-    h+=`<circle cx="${t[0]}" cy="${t[1]}" r="26" fill="rgba(109,162,74,.30)" stroke="rgba(109,162,74,.7)" stroke-width="1.5"/><circle cx="${t[0]}" cy="${t[1]}" r="5" fill="#6e5335"/>`;});
+    const tx=Math.max(48,Math.min(952,t[0]));
+    if(Math.abs(tx-M.ped.x)<334+42&&Math.abs(t[1]-M.ped.y)<37+48)return;
+    h+=`<circle cx="${tx}" cy="${t[1]}" r="26" fill="rgba(109,162,74,.30)" stroke="rgba(109,162,74,.7)" stroke-width="1.5"/><circle cx="${tx}" cy="${t[1]}" r="5" fill="#6e5335"/>`;});
   h+=`<line x1="30" y1="632" x2="975" y2="632" stroke="rgba(255,255,255,.18)" stroke-dasharray="12 8" stroke-width="2"/>
       <text x="500" y="628" font-size="9.5" fill="var(--muted)" text-anchor="middle" style="letter-spacing:.25em">STACCIONATA · CAMMINAMENTO</text>
       <text x="953" y="392" font-size="11" font-weight="700" fill="#f87171" text-anchor="middle">U.E. →</text>`;
@@ -1851,9 +1853,11 @@ function renderAllest3DSvg(){
     parts.push({x:bx,y:by,s:`<ellipse cx="${q[0].toFixed(1)}" cy="${(q[1]-6).toFixed(1)}" rx="10" ry="8" fill="#4e7d3a"/><ellipse cx="${(q[0]+4).toFixed(1)}" cy="${(q[1]-11).toFixed(1)}" rx="7" ry="6" fill="#5f924a"/>`});}
   // alberi di sfondo (bordo alto)
   [[120,34,1.1],[420,30,0.9],[760,30,1.2]].forEach(t=>parts.push({x:t[0],y:t[1],s:iso3dTree(t[0],t[1],t[2])}));
-  // due grandi alberi d'ingresso, uno per lato della pedana
-  parts.push({x:M.ped.x-368,y:M.ped.y,s:iso3dTree(M.ped.x-368,M.ped.y,2.0)});
-  parts.push({x:M.ped.x+368,y:M.ped.y,s:iso3dTree(M.ped.x+368,M.ped.y,2.0)});
+  // due grandi alberi d'ingresso: solo se non finiscono sulla pedana
+  [[M.ped.x-368,M.ped.y],[M.ped.x+368,M.ped.y]].forEach(p=>{
+    const tx=Math.max(48,Math.min(952,p[0]));
+    if(!(Math.abs(tx-M.ped.x)<334+42&&Math.abs(p[1]-M.ped.y)<37+48))parts.push({x:tx,y:p[1],s:iso3dTree(tx,p[1],2.0)});
+  });
   // pezzi degli articoli
   S.allestPos.forEach(p=>{
     const a=S.allestimento.find(x=>x.id===p.allestimento_id);if(!a)return;
@@ -1968,7 +1972,12 @@ function build3D(el){
   put(lab3d('PEDANA'),M.ped.x,26,M.ped.y);
   function tree(x,z,s){bar(V(x,0,z),V(x,44*s,z),4*s,M_trunk);
     [[0,52,0,22],[-14,42,6,15],[13,44,-7,14]].forEach((o,i)=>{const f=new THREE.Mesh(new THREE.SphereGeometry(o[3]*s,12,10),i%2?M_green1:M_green2);f.position.set(x+o[0]*s,o[1]*s,z+o[2]*s);f.castShadow=true;scene.add(f);});}
-  tree(Math.max(60,M.ped.x-334-58),M.ped.y+4,2.1);tree(Math.min(940,M.ped.x+334+58),M.ped.y+4,2.1);
+  // alberi d'ingresso: mai sopra la pedana (se il posto non c'è, l'albero non si disegna)
+  [[M.ped.x-334-58,M.ped.y+4],[M.ped.x+334+58,M.ped.y+4]].forEach(p=>{
+    const tx=Math.max(48,Math.min(952,p[0]));
+    const suPedana=Math.abs(tx-M.ped.x)<334+42&&Math.abs(p[1]-M.ped.y)<37+48;
+    if(!suPedana)tree(tx,p[1],2.1);
+  });
   tree(120,30,1.2);tree(430,26,1.0);tree(775,26,1.25);
   (function(){const x=M.tenso.x,z=M.tenso.y,hw=98,hd=248,H=105;
     box(hw*2,5,hd*2,M_plank,x,2.5,z);
