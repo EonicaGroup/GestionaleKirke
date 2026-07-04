@@ -2631,6 +2631,9 @@ function renderSetup(){
       <div><div class="label" style="margin-bottom:6px">Numero 3 (con +39)</div><input class="input" placeholder="+39333…" value="${esc(cfg('wa_num3',''))}" onchange="setCfg('wa_num3',this.value.trim())"></div>
       <div><div class="label" style="margin-bottom:6px">API key 3</div><input class="input" placeholder="123456" value="${esc(cfg('wa_key3',''))}" onchange="setCfg('wa_key3',this.value.trim())"></div>
     </div>
+    <div class="field"><div class="label" style="margin-bottom:6px">Canale Microsoft Teams (facoltativo)</div>
+      <input class="input" placeholder="https://prod-…logic.azure.com/…" value="${esc(cfg('teams_webhook',''))}" onchange="setCfg('teams_webhook',this.value.trim())">
+      <div class="dim" style="font-size:11.5px;margin-top:6px;line-height:1.5">Nel canale Teams → ⋯ → <b>Flussi di lavoro</b> → "Pubblica in un canale quando viene ricevuta una richiesta webhook" → copia qui l'URL. Tutti i messaggi del bot (brief, forniture, alert) arriveranno anche nel canale.</div></div>
     <button class="btn btn-accent" style="width:100%" onclick="testWaBrief(this)">📲 Invia brief di prova adesso</button>
   </div>
   <div class="label" style="margin:20px 0 10px;display:flex;justify-content:space-between;align-items:center">Tipologie di serata <button class="btn btn-sm btn-ghost" onclick="openTip()">+ Nuova</button></div>`;
