@@ -1218,7 +1218,7 @@ const eur=n=>'€'+(Math.round(Number(n||0)*100)/100).toLocaleString('it-IT',{mi
 function consumoVendite(aid){let c=0;S.vendite.forEach(v=>{if(v.articolo_id){if(v.articolo_id===aid)c+=Number(v.quantita||0);return;}const p=S.prodotti.find(x=>x.id===v.prodotto_id);if(!p)return;if(p.articolo_id===aid)c+=Number(v.quantita||0);else S.ricette.filter(r=>r.prodotto_id===p.id&&r.articolo_id===aid).forEach(r=>c+=Number(r.quantita||0)*Number(v.quantita||0));});return c;}
 function giacenza(aid){let g=0;S.movimenti.forEach(m=>{if(m.articolo_id===aid)g+=(m.tipo==='carico'?1:-1)*Number(m.quantita||0);});g-=consumoVendite(aid);return Math.round(g*100)/100;}
 function costoUnit(a){if(!a)return 0;let q=0,val=0;S.movimenti.forEach(m=>{if(m.articolo_id===a.id&&m.tipo==='carico'&&m.costo_unitario!=null&&m.costo_unitario!==''){q+=Number(m.quantita||0);val+=Number(m.quantita||0)*Number(m.costo_unitario);}});return q>0?val/q:Number(a.costo_medio||0);}
-function costoProdotto(p){if(!p)return 0;if(p.articolo_id){return costoUnit(S.articoli.find(x=>x.id===p.articolo_id));}let c=0;S.ricette.filter(r=>r.prodotto_id===p.id).forEach(r=>{c+=Number(r.quantita||0)*costoUnit(S.articoli.find(x=>x.id===r.articolo_id));});return c;}
+function costoProdotto(p){if(!p)return 0;if(p.articolo_id){return costoUnit(S.articoli.find(x=>x.id===p.articolo_id));}let c=0;S.ricette.filter(r=>r.prodotto_id===p.id).forEach(r=>{const art=S.articoli.find(x=>x.id===r.articolo_id);if(r.cl!=null&&r.cl!==''){c+=Number(r.cl)*costoCl(art);}else{c+=Number(r.quantita||0)*costoUnit(art);}});return c;}
 function daOrdinare(a){return Math.max(0,Number(a.soglia_min||0)-giacenza(a.id));}
 function fmtCl(cl){cl=Number(cl||0);if(!cl)return '';return (cl%1===0?cl:cl.toFixed(1))+' cl';}
 function fmtVol(cl){cl=Number(cl||0);if(!cl)return '0';return cl>=100?((cl/100).toLocaleString('it-IT',{maximumFractionDigits:2})+' L'):((Math.round(cl*10)/10).toLocaleString('it-IT')+' cl');}
@@ -1432,17 +1432,41 @@ function openProdotto(id){
     </div>
     <div class="dim" style="font-size:12px;margin-bottom:12px">Le bottiglie vendute intere NON si creano qui: rendile "vendibili" dalle Giacenze. Qui crei cocktail/vino/food con ricetta.</div>
     ${id?`<div class="card" style="padding:14px;margin-bottom:14px">
-      <div style="display:flex;justify-content:space-between;margin-bottom:8px"><div class="label">Ricetta (distinta base)</div><div class="dim" style="font-size:12px">costo ${eur(co)}</div></div>
-      ${ric.map(r=>{const a=S.articoli.find(x=>x.id===r.articolo_id)||{};return `<div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:5px 0;border-top:1px solid var(--border)"><span>${esc(a.nome||'?')} <span class="dim">· ${r.cl?fmtCl(r.cl):(r.quantita+' '+esc(a.unita||''))} · ${eur((r.quantita||0)*costoUnit(a))}</span></span><button onclick="delRicetta(${r.id},${id})" class="btn btn-sm btn-ghost">×</button></div>`;}).join('')||'<div class="dim" style="font-size:12px">Nessun ingrediente (ignora se è una bottiglia collegata sopra).</div>'}
-      <div style="display:flex;gap:6px;margin-top:8px"><select id="ric_art" class="input" style="flex:1;padding:8px" onchange="ricUnit(this)">${S.articoli.map(a=>`<option value="${a.id}" data-cl="${a.capacita_cl||0}">${esc(a.nome)} (${esc(a.unita||'')})</option>`).join('')}</select><input id="ric_q" type="number" step="0.1" class="input" style="width:66px;padding:8px" placeholder="q.tà"><button onclick="addRicetta(${id})" class="btn btn-accent btn-sm">+</button></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:8px"><div class="label">Ricetta · ingredienti in cl / ml / pz</div><div class="dim" style="font-size:12px">costo ${eur(co)}</div></div>
+      ${ric.map(r=>{const a=S.articoli.find(x=>x.id===r.articolo_id)||{};return `<div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:5px 0;border-top:1px solid var(--border)"><span>${esc(a.nome||'?')} <span class="dim">· ${r.cl!=null&&r.cl!==''?fmtCl(r.cl):(r.quantita+' '+esc(a.unita||'pz'))} · ${eur(r.cl!=null&&r.cl!==''?Number(r.cl)*costoCl(a):(r.quantita||0)*costoUnit(a))}</span></span><button onclick="delRicetta(${r.id},${id})" class="btn btn-sm btn-ghost">×</button></div>`;}).join('')||'<div class="dim" style="font-size:12px">Nessun ingrediente (ignora se è una bottiglia collegata sopra).</div>'}
+      <div style="display:flex;gap:6px;margin-top:8px"><select id="ric_art" class="input" style="flex:1;min-width:120px;padding:8px">${S.articoli.map(a=>`<option value="${a.id}">${esc(a.nome)}${a.capacita_cl?(' · '+a.capacita_cl+'cl'):''}</option>`).join('')}</select><input id="ric_q" type="number" step="0.1" inputmode="decimal" class="input" style="width:60px;padding:8px" placeholder="q.tà"><select id="ric_u" class="input" style="width:66px;padding:8px"><option value="cl">cl</option><option value="ml">ml</option><option value="pz">pz</option></select><button onclick="addRicetta(${id})" class="btn btn-accent btn-sm">+</button></div>
     </div>`:'<div class="dim" style="font-size:12px;margin-bottom:14px">Salva, poi potrai aggiungere gli ingredienti della ricetta.</div>'}
     <div style="display:flex;gap:8px"><button onclick="saveProdotto(${id||'null'})" class="btn btn-accent" style="flex:1">Salva</button>${id?`<button onclick="delProdotto(${id})" class="btn btn-danger">Elimina</button>`:''}</div>`;
-  showModal(); setTimeout(()=>{const s=document.getElementById('ric_art');if(s)ricUnit(s);},0);
+  showModal();
 }
 async function saveProdotto(id){const o={nome:$('#pr_nome').value.trim(),categoria:$('#pr_cat').value||'altro',prezzo_vendita:+$('#pr_prezzo').value||0,articolo_id:null};if(!o.nome)return alert('Nome obbligatorio');if(id){await db.from('prodotti').update(o).eq('id',id);await reloadAll();render();}else{const r=await db.from('prodotti').insert(o).select().single();await reloadAll();if(r.data)openProdotto(r.data.id);else{hideModal();render();}}}
 async function delProdotto(id){if(confirm('Eliminare il prodotto?')){await db.from('prodotti').delete().eq('id',id);await reloadAll();hideModal();render();}}
-function ricUnit(sel){const o=sel.options[sel.selectedIndex];const cl=o?+o.dataset.cl:0;const q=document.getElementById('ric_q');if(q)q.placeholder=cl>0?'cl':'q.tà';}
-async function addRicetta(pid){const aid=+$('#ric_art').value,q=Number(String($('#ric_q').value).replace(',','.'));if(!(q>0))return alert('Quantità non valida');const art=S.articoli.find(x=>x.id===aid)||{};const cap=Number(art.capacita_cl||0);const row=cap>0?{prodotto_id:pid,articolo_id:aid,cl:q,quantita:Math.round((q/cap)*10000)/10000}:{prodotto_id:pid,articolo_id:aid,quantita:q};await db.from('ricette').insert(row);await reloadAll();openProdotto(pid);}
+async function addRicetta(pid){
+  const aid=+$('#ric_art').value;
+  const q=Number(String($('#ric_q').value).replace(',','.'));
+  const u=$('#ric_u')?$('#ric_u').value:'cl';
+  if(!(q>0))return alert('Quantità non valida');
+  const art=S.articoli.find(x=>x.id===aid)||{};
+  let row;
+  if(u==='pz'){ row={prodotto_id:pid,articolo_id:aid,quantita:q,cl:null}; }
+  else {
+    const cl=(u==='ml')?q/10:q;
+    let cap=Number(art.capacita_cl||0);
+    if(cap<=0){
+      const f=prompt('Prima volta che usi "'+(art.nome||'')+'" in cl.\nChe formato ha una bottiglia? (cl, es. 70)');
+      const fn=Number(String(f||'').replace(',','.'));
+      if(fn>0){ await db.from('articoli').update({capacita_cl:fn}).eq('id',aid); cap=fn; }
+    }
+    const haCosto=Number(art.costo_medio)>0 || S.movimenti.some(m=>m.articolo_id===aid&&m.tipo==='carico'&&m.costo_unitario);
+    if(cap>0 && !haCosto){
+      const c=prompt('Quanto costa una bottiglia intera di "'+(art.nome||'')+'"? (€ — lascia vuoto per dopo)');
+      const cn=Number(String(c||'').replace(',','.'));
+      if(cn>0){ await db.from('articoli').update({costo_medio:cn}).eq('id',aid); }
+    }
+    row={prodotto_id:pid,articolo_id:aid,cl:cl,quantita:cap>0?Math.round((cl/cap)*10000)/10000:0};
+  }
+  await db.from('ricette').insert(row);await reloadAll();openProdotto(pid);
+}
 async function delRicetta(rid,pid){await db.from('ricette').delete().eq('id',rid);await reloadAll();openProdotto(pid);}
 
 // ---- Conto economico serata ----
