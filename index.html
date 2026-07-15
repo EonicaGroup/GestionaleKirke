@@ -262,17 +262,21 @@ function applyTheme(){
 applyTheme();
 
 // ================= GATE ================= (password richiesta a ogni caricamento)
-const APP_PWDS=['GIANMA','EONICA']; // accettate entrambe, maiuscole/minuscole indifferenti
+const APP_PWDS=['GIANMA','EONICA']; // accesso completo
+const MAG_PWDS=['KIRKE'];             // accesso ristretto: solo Giacenze + Listino
+let MAGONLY=false;
 function checkPwd(){
   const v=document.getElementById('pwd').value.trim().toUpperCase();
-  if(APP_PWDS.includes(v)){ openApp(); }
+  if(MAG_PWDS.includes(v)){ MAGONLY=true; openApp(); }
+  else if(APP_PWDS.includes(v)){ MAGONLY=false; openApp(); }
   else document.getElementById('pwderr').textContent='Password errata';
 }
 document.getElementById('pwd').addEventListener('keydown',e=>{if(e.key==='Enter')checkPwd();});
 function openApp(){
   document.getElementById('gate').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
-  document.getElementById('nav').classList.remove('hidden');
+  if(MAGONLY){ document.body.classList.add('magonly'); TAB='magazzino'; magazzinoMode='giacenze'; var _sb=document.querySelector('header .cbtn'); if(_sb)_sb.style.display='none'; }
+  else document.getElementById('nav').classList.remove('hidden');
   document.getElementById('fab').classList.remove('hidden');
   applyTheme(); boot();
 }
@@ -286,7 +290,22 @@ async function boot(){
   if(!db){document.getElementById('view').innerHTML='<div class="card" style="padding:18px;color:#f87171">Connessione assente: impossibile caricare i dati. Riapri con internet attivo.</div>';return;}
   await reloadAll(); subscribe(); render();
 }
+async function reloadMag(){
+  const [arts,movs,pro,ric,ven,con,cfgr]=await Promise.all([
+    db.from('articoli').select('*').order('nome'),
+    db.from('movimenti').select('*'),
+    db.from('prodotti').select('*').order('nome'),
+    db.from('ricette').select('*'),
+    db.from('vendite').select('*'),
+    db.from('contatti').select('*').order('nome'),
+    db.from('config').select('*'),
+  ]);
+  S.articoli=(arts&&arts.data)||[]; S.movimenti=(movs&&movs.data)||[];
+  S.prodotti=(pro&&pro.data)||[]; S.ricette=(ric&&ric.data)||[]; S.vendite=(ven&&ven.data)||[];
+  S.contatti=(con&&con.data)||[]; S.config={}; (cfgr.data||[]).forEach(r=>{S.config[r.chiave]=r.valore;});
+}
 async function reloadAll(){
+  if(MAGONLY) return reloadMag();
   const [tip,ruo,tr,per,ser,ass,con,cfgr,arts,movs,pro,ric,ven,cos,inc,tdo,nte,fls,crt,alle,alk,prt,tds,apz]=await Promise.all([
     db.from('tipologie').select('*').order('ordine'),
     db.from('ruoli').select('*').order('id'),
@@ -323,6 +342,7 @@ async function reloadAll(){
   S.partnership=(prt&&prt.data)||[]; S.todoSub=(tds&&tds.data)||[]; S.allestPos=(apz&&apz.data)||[];
 }
 function subscribe(){
+  if(MAGONLY){['articoli','movimenti','prodotti','ricette','vendite'].forEach(t=>db.channel('rt_'+t).on('postgres_changes',{event:'*',schema:'public',table:t},async()=>{await reloadAll();render();const s=document.getElementById('synced');if(s){s.textContent='● aggiornato';setTimeout(()=>s.textContent='● live',1400);}}).subscribe());return;}
   ['tipologie','ruoli','tipologia_ruoli','personale','serate','serata_personale','contatti','config','articoli','movimenti','prodotti','ricette','vendite','costi_serata','incassi_extra','todo','note','file','cartella','allestimento','allestimento_link','partnership','todo_sub','allestimento_pos'].forEach(t=>{
     db.channel('rt_'+t).on('postgres_changes',{event:'*',schema:'public',table:t},async()=>{
       await reloadAll(); render();
@@ -379,6 +399,7 @@ document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>{
 function fabAction(){ if(TAB==='serate'){ if(serateMode==='todo')openTodo(); else if(serateMode==='appunti')openNota(); else if(serateMode==='file')document.getElementById('fileInput').click(); else if(serateMode==='sponsor')openPartnership(); else openSerata(); } else if(TAB==='personale')openPers(); else if(TAB==='contatti')openCont(); else if(TAB==='magazzino'){ if(magazzinoMode==='listino')openProdotto(); else if(magazzinoMode==='allestimento')openAllest(); else openArticolo(); } }
 let _lastTab=null;
 function render(){
+  if(MAGONLY)TAB='magazzino';
   const keep=(_lastTab===TAB), y=keep?window.scrollY:0;
   ({home:renderHome,serate:renderSerate,personale:renderPersonale,contatti:renderContatti,setup:renderSetup,magazzino:renderMagazzino,note:renderNote}[TAB])();
   numpad(); window.scrollTo(0,keep?y:0); _lastTab=TAB;
@@ -1192,12 +1213,45 @@ async function delCont(id){if(confirm('Eliminare?')){await db.from('contatti').d
 
 // ================= MAGAZZINO / ECONOMIA =================
 let magazzinoMode='giacenze';
+let magFiltro='tutti';
 const eur=n=>'€'+(Math.round(Number(n||0)*100)/100).toLocaleString('it-IT',{minimumFractionDigits:0,maximumFractionDigits:2});
 function consumoVendite(aid){let c=0;S.vendite.forEach(v=>{if(v.articolo_id){if(v.articolo_id===aid)c+=Number(v.quantita||0);return;}const p=S.prodotti.find(x=>x.id===v.prodotto_id);if(!p)return;if(p.articolo_id===aid)c+=Number(v.quantita||0);else S.ricette.filter(r=>r.prodotto_id===p.id&&r.articolo_id===aid).forEach(r=>c+=Number(r.quantita||0)*Number(v.quantita||0));});return c;}
 function giacenza(aid){let g=0;S.movimenti.forEach(m=>{if(m.articolo_id===aid)g+=(m.tipo==='carico'?1:-1)*Number(m.quantita||0);});g-=consumoVendite(aid);return Math.round(g*100)/100;}
 function costoUnit(a){if(!a)return 0;let q=0,val=0;S.movimenti.forEach(m=>{if(m.articolo_id===a.id&&m.tipo==='carico'&&m.costo_unitario!=null&&m.costo_unitario!==''){q+=Number(m.quantita||0);val+=Number(m.quantita||0)*Number(m.costo_unitario);}});return q>0?val/q:Number(a.costo_medio||0);}
 function costoProdotto(p){if(!p)return 0;if(p.articolo_id){return costoUnit(S.articoli.find(x=>x.id===p.articolo_id));}let c=0;S.ricette.filter(r=>r.prodotto_id===p.id).forEach(r=>{c+=Number(r.quantita||0)*costoUnit(S.articoli.find(x=>x.id===r.articolo_id));});return c;}
 function daOrdinare(a){return Math.max(0,Number(a.soglia_min||0)-giacenza(a.id));}
+function fmtCl(cl){cl=Number(cl||0);if(!cl)return '';return (cl%1===0?cl:cl.toFixed(1))+' cl';}
+function fmtVol(cl){cl=Number(cl||0);if(!cl)return '0';return cl>=100?((cl/100).toLocaleString('it-IT',{maximumFractionDigits:2})+' L'):((Math.round(cl*10)/10).toLocaleString('it-IT')+' cl');}
+function capCl(a){return Number((a&&a.capacita_cl)||0);}
+function unitaCl(a){const u=((a&&a.unita)||'').trim().toLowerCase();if(u==='cl')return 1;if(u==='l'||u==='lt'||u==='litro'||u==='litri')return 100;return capCl(a);}
+function volCl(a){return giacenza(a.id)*unitaCl(a);}
+function costoCl(a){const k=unitaCl(a);return k>0?costoUnit(a)/k:0;}
+function eurCl(v){v=Number(v||0);return '€'+(Math.round(v*1000)/1000).toLocaleString('it-IT',{minimumFractionDigits:0,maximumFractionDigits:3});}
+function consumoTot(aid){let s=0;S.movimenti.forEach(m=>{if(m.articolo_id===aid&&m.tipo==='scarico')s+=Number(m.quantita||0);});return s+consumoVendite(aid);}
+function nEventiStima(){const d=new Set();S.movimenti.forEach(m=>{if(m.data)d.add(m.data);});return Math.max(1,d.size);}
+function coperturaSerate(a){const c=consumoTot(a.id);if(c<=0)return null;const per=c/nEventiStima();if(per<=0)return null;return giacenza(a.id)/per;}
+function arCost(from){const capEl=document.getElementById('ar_cl'),bEl=document.getElementById('ar_costo'),lEl=document.getElementById('ar_costo_l'),rEl=document.getElementById('ar_cl_read');if(!bEl)return;const cap=capEl?(+capEl.value||0):0;let cb=+bEl.value||0,clL=lEl?(+lEl.value||0):0;if(from==='litro'){if(cap>0){cb=clL*cap/100;bEl.value=Math.round(cb*100)/100;}}else{if(cap>0&&lEl){clL=cb*100/cap;lEl.value=Math.round(clL*100)/100;}}if(rEl){rEl.innerHTML=cap>0?('Formato '+fmtCl(cap)+' · <b>'+eurCl(cb/cap)+'/cl</b> · '+eur(cb*100/cap)+'/L'):'Imposta il formato (cl) per calcolare €/cl e €/L';}}
+function magRow(a){
+  const g=giacenza(a.id),ord=daOrdinare(a),cu=costoUnit(a),val=g*cu,cap=capCl(a),vcl=volCl(a),ccl=costoCl(a);
+  const st=g<=0?'#f87171':(ord>0?'var(--accent)':'#4bb573');
+  const stbg=g<=0?'rgba(248,113,113,.14)':(ord>0?'var(--accent-soft)':'rgba(75,181,115,.14)');
+  const meta=[];
+  if(vcl>0)meta.push(fmtVol(vcl));
+  if(ccl>0)meta.push(eurCl(ccl)+'/cl'); else if(cu>0)meta.push('costo '+eur(cu)+'/'+esc(a.unita||'u'));
+  if(val>0)meta.push('val '+eur(val));
+  const cov=coperturaSerate(a),sub2=[];
+  if(cap>0)sub2.push('formato '+fmtCl(cap));
+  if(cu<=0)sub2.push('⚠︎ imposta costo bottiglia');
+  else if(cap<=0&&!/^(cl|l|lt|litri?)$/i.test((a.unita||'').trim()))sub2.push('⚠︎ imposta formato (cl)');
+  if(cov!=null)sub2.push('copertura ≈'+(cov>=10?Math.round(cov):cov.toFixed(1))+' serate');
+  const rightPill=ord>0?`<span class="pill" style="background:var(--accent-soft);color:var(--accent)">ordina ${ord}</span>`:`<span class="pill" style="background:${stbg};color:${st}">${g} ${esc(a.unita||'')}</span>`;
+  return `<div class="card tap magrow" data-s="${esc((a.nome||'').toLowerCase())}" onclick="openArticolo(${a.id})" style="padding:12px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px">
+    <div style="min-width:0;flex:1"><div style="font-size:14px;font-weight:500">${esc(a.nome)}</div>
+    <div class="dim" style="font-size:12px;margin-top:2px">giac. <b style="color:${st}">${g}</b> ${esc(a.unita||'')}${meta.length?(' · '+meta.join(' · ')):''}</div>
+    ${sub2.length?`<div class="dim" style="font-size:11px;margin-top:3px;opacity:.85">${sub2.join(' · ')}</div>`:''}</div>
+    ${rightPill}</div>`;
+}
+function magSearch(q){q=(q||'').trim().toLowerCase();document.querySelectorAll('#view .magrp').forEach(rp=>{let vis=0;rp.querySelectorAll('.magrow').forEach(r=>{const m=!q||(r.dataset.s||'').includes(q);r.style.display=m?'':'none';if(m)vis++;});const lbl=rp.querySelector('.maglabel');if(lbl)lbl.style.display=vis?'':'none';rp.style.display=vis?'':'none';});}
 function econ(s){
   const vend=S.vendite.filter(v=>v.serata_id===s.id);
   let ricaviV=0,cogs=0;
@@ -1222,33 +1276,46 @@ function renderMagazzino(){
     <div style="display:flex;gap:8px;margin-bottom:16px;overflow-x:auto;padding-bottom:2px">
       <span class="chip ${magazzinoMode==='giacenze'?'on':''}" style="cursor:pointer" onclick="magazzinoMode='giacenze';renderMagazzino()">Giacenze</span>
       <span class="chip ${magazzinoMode==='listino'?'on':''}" style="cursor:pointer" onclick="magazzinoMode='listino';renderMagazzino()">Listino</span>
-      <span class="chip ${magazzinoMode==='allestimento'?'on':''}" style="cursor:pointer" onclick="magazzinoMode='allestimento';renderMagazzino()">Allestimento</span>
+      ${MAGONLY?'':`<span class="chip ${magazzinoMode==='allestimento'?'on':''}" style="cursor:pointer" onclick="magazzinoMode='allestimento';renderMagazzino()">Allestimento</span>`}
     </div>`;
   if(magazzinoMode==='giacenze'){
-    const cats={bar:'Bar',cucina:'Cucina',altro:'Altro'};
+    if(MAGONLY&&magazzinoMode==='allestimento')magazzinoMode='giacenze';
     const low=arts.filter(a=>daOrdinare(a)>0);
+    const zero=arts.filter(a=>giacenza(a.id)<=0);
     const valore=arts.reduce((t,a)=>t+giacenza(a.id)*costoUnit(a),0);
-    html+=`<div class="grid2" style="margin-bottom:14px">
+    let list=arts.slice();
+    if(magFiltro==='bassi')list=list.filter(a=>daOrdinare(a)>0);
+    else if(magFiltro==='zero')list=list.filter(a=>giacenza(a.id)<=0);
+    html+=`<div class="grid2" style="margin-bottom:12px">
       <div class="card" style="padding:14px"><div class="serif" style="font-size:20px">${eur(valore)}</div><div class="label" style="margin-top:2px">valore magazzino</div></div>
-      <div class="card" style="padding:14px"><div class="serif" style="font-size:20px">${eur(costoVendutoStagione())}</div><div class="label" style="margin-top:2px">costo venduto stagione</div></div>
-    </div>
-    ${low.length?`<div class="card" style="padding:12px 14px;margin-bottom:14px;border-color:var(--accent-line);display:flex;justify-content:space-between;align-items:center"><span style="font-size:13px">${low.length} articoli sotto soglia</span><span class="pill" style="background:var(--accent-soft);color:var(--accent)">da riordinare</span></div>`:''}`;
-    Object.keys(cats).forEach(c=>{const lst=arts.filter(a=>(a.categoria||'altro')===c);if(!lst.length)return;
-      html+=`<div class="label" style="margin:16px 0 9px">${cats[c]}</div>`+lst.map(a=>{const g=giacenza(a.id),ord=daOrdinare(a);
-        return `<div class="card tap" onclick="openArticolo(${a.id})" style="padding:12px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
-          <div style="min-width:0"><div style="font-size:14px;font-weight:500">${esc(a.nome)}</div><div class="dim" style="font-size:12px">giac. ${g} ${esc(a.unita||'')} · costo ${eur(costoUnit(a))}/${esc(a.unita||'')}</div></div>
-          ${ord>0?`<span class="pill" style="background:var(--accent-soft);color:var(--accent)">ordina ${ord}</span>`:`<span class="pill" style="background:var(--surface2);color:var(--text2)">${g} ${esc(a.unita||'')}</span>`}</div>`;}).join('');
-    });
+      <div class="card" style="padding:14px"><div class="serif" style="font-size:20px">${(arts.reduce((t,a)=>t+volCl(a),0)/100).toLocaleString('it-IT',{maximumFractionDigits:0})} L</div><div class="label" style="margin-top:2px">volume totale</div></div>
+    </div>`;
+    html+=`<input class="input" placeholder="Cerca articolo o ubicazione…" oninput="magSearch(this.value)" style="margin-bottom:10px">`;
+    html+=`<div style="display:flex;gap:8px;margin-bottom:14px;overflow-x:auto;padding-bottom:2px">
+      <span class="chip ${magFiltro==='tutti'?'on':''}" style="cursor:pointer;white-space:nowrap" onclick="magFiltro='tutti';renderMagazzino()">Tutti · ${arts.length}</span>
+      <span class="chip ${magFiltro==='bassi'?'on':''}" style="cursor:pointer;white-space:nowrap" onclick="magFiltro='bassi';renderMagazzino()">Sotto soglia · ${low.length}</span>
+      <span class="chip ${magFiltro==='zero'?'on':''}" style="cursor:pointer;white-space:nowrap" onclick="magFiltro='zero';renderMagazzino()">Esauriti · ${zero.length}</span>
+    </div>`;
+    const cats={bar:'Bar',cucina:'Cucina',altro:'Altro'};
+    const known=Object.keys(cats); let any=false;
+    const groups=known.map(c=>[cats[c],list.filter(a=>(a.categoria||'altro')===c)]);
+    const other=list.filter(a=>!known.includes(a.categoria||'altro')); if(other.length)groups.push(['Altre categorie',other]);
+    groups.forEach(([nome,lst])=>{if(!lst.length)return;any=true;
+      html+=`<div class="magrp"><div class="label maglabel" style="margin:14px 0 9px">${nome} <span class="dim" style="font-weight:400">· ${lst.length}</span></div>`+lst.map(a=>magRow(a)).join('')+`</div>`;});
     if(!arts.length)html+=`<div class="card" style="padding:22px;color:var(--text2)">Nessun articolo. Tocca + per registrare il primo (bottiglie, materie prime, food).</div>`;
+    else if(!any)html+=`<div class="card" style="padding:20px;color:var(--text2)">Nessun articolo per questo filtro.</div>`;
   } else if(magazzinoMode==='listino'){
     const items=[];
-    S.articoli.filter(a=>a.vendibile&&a.attivo!==false).forEach(a=>items.push({t:'a',id:a.id,nome:a.nome,cat:'bottiglia',prezzo:Number(a.prezzo_vendita||0),costo:costoUnit(a)}));
-    S.prodotti.filter(p=>p.attivo!==false).forEach(p=>items.push({t:'p',id:p.id,nome:p.nome,cat:p.categoria||'altro',prezzo:Number(p.prezzo_vendita||0),costo:costoProdotto(p)}));
+    S.articoli.filter(a=>a.vendibile&&a.attivo!==false).forEach(a=>items.push({t:'a',id:a.id,nome:a.nome,cat:'Bottiglie intere',prezzo:Number(a.prezzo_vendita||0),costo:costoUnit(a),ccl:costoCl(a)}));
+    S.prodotti.filter(p=>p.attivo!==false).forEach(p=>items.push({t:'p',id:p.id,nome:p.nome,cat:(p.categoria||'altro'),prezzo:Number(p.prezzo_vendita||0),costo:costoProdotto(p)}));
+    html+=`<div class="dim" style="font-size:12px;margin-bottom:12px">I cocktail calcolano il costo dalla ricetta in <b>cl</b>: tocca un cocktail per impostarne gli ingredienti. Il €/cl arriva dal costo bottiglia inserito nelle Giacenze.</div>`;
+    if(items.some(it=>it.costo<=0))html+=`<div class="card" style="padding:11px 14px;margin-bottom:14px;border-color:var(--accent-line);font-size:12px">Alcune voci hanno costo 0: imposta il <b>costo bottiglia</b> (e il formato in cl) nelle Giacenze per avere margini reali.</div>`;
     const cats={};items.forEach(it=>{(cats[it.cat]=cats[it.cat]||[]).push(it);});
     Object.keys(cats).forEach(c=>{
       html+=`<div class="label" style="margin:16px 0 9px;text-transform:capitalize">${esc(c)}</div>`+cats[c].map(it=>{const mg=it.prezzo>0?Math.round((it.prezzo-it.costo)/it.prezzo*100):0;
-        return `<div class="card tap" onclick="${it.t==='a'?`openArticolo(${it.id})`:`openProdotto(${it.id})`}" style="padding:12px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
-          <div style="min-width:0"><div style="font-size:14px;font-weight:500">${esc(it.nome)}${it.t==='a'?' <span class="dim" style="font-size:11px">· magazzino</span>':''}</div><div class="dim" style="font-size:12px">prezzo ${eur(it.prezzo)} · costo ${eur(it.costo)} · margine ${mg}%</div></div>
+        const det=it.t==='a'?('prezzo '+eur(it.prezzo)+' · costo '+eur(it.costo)+(it.ccl>0?(' · '+eurCl(it.ccl)+'/cl'):'')+' · margine '+mg+'%'):('prezzo '+eur(it.prezzo)+' · costo ricetta '+eur(it.costo)+' · margine '+mg+'%');
+        return `<div class="card tap" onclick="${it.t==='a'?`openArticolo(${it.id})`:`openProdotto(${it.id})`}" style="padding:12px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px">
+          <div style="min-width:0;flex:1"><div style="font-size:14px;font-weight:500">${esc(it.nome)}${it.t==='a'?' <span class="dim" style="font-size:11px">· bottiglia</span>':' <span class="dim" style="font-size:11px">· cocktail</span>'}</div><div class="dim" style="font-size:12px;margin-top:2px">${det}</div></div>
           <span class="pill" style="background:var(--accent-soft);color:var(--accent)">${eur(it.prezzo)}</span></div>`;}).join('');
     });
     if(!items.length)html+=`<div class="card" style="padding:22px;color:var(--text2)">Nessun prodotto a listino. Aggiungi un cocktail col + qui, oppure rendi "vendibile" una bottiglia dalle Giacenze.</div>`;
@@ -1320,7 +1387,7 @@ function openArticolo(id){
   $('#modalbody').innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:center;margin:2px 0 16px"><div class="serif" style="font-size:19px">${id?'Articolo':'Nuovo articolo'}</div><button onclick="hideModal()" class="btn btn-sm btn-ghost">Chiudi</button></div>
     ${id?`<div class="card" style="padding:16px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">
-      <div><div class="serif" style="font-size:28px">${g} <span class="dim" style="font-size:14px">${esc(a.unita||'')}</span></div><div class="label" style="margin-top:2px">giacenza · costo ${eur(costoUnit(a))}/${esc(a.unita||'u')}</div></div>
+      <div><div class="serif" style="font-size:28px">${g} <span class="dim" style="font-size:14px">${esc(a.unita||'')}</span></div><div class="label" style="margin-top:2px">giacenza${capCl(a)>0?(' · '+fmtVol(volCl(a))):''}${costoCl(a)>0?(' · '+eurCl(costoCl(a))+'/cl'):''}</div>${(function(){const val=g*costoUnit(a),bits=[];if(val>0)bits.push('valore '+eur(val));if(costoUnit(a)>0)bits.push('costo '+eur(costoUnit(a))+'/'+esc(a.unita||'u'));const cov=coperturaSerate(a);if(cov!=null)bits.push('copertura ≈'+(cov>=10?Math.round(cov):cov.toFixed(1))+' serate');return bits.length?('<div class="dim" style="font-size:11px;margin-top:4px">'+bits.join(' · ')+'</div>'):'';})()}</div>
       <div style="display:flex;gap:8px"><button class="btn btn-accent btn-sm" onclick="movimento(${id},'carico')">+ Carico</button><button class="btn btn-ghost btn-sm" onclick="movimento(${id},'scarico')">− Scarico</button></div>
     </div>`:''}
     <div class="field"><input id="ar_nome" class="input" placeholder="Nome prodotto" value="${esc(a.nome)}"></div>
@@ -1329,17 +1396,26 @@ function openArticolo(id){
       <div><div class="label" style="margin-bottom:6px">Unità</div><input id="ar_un" class="input" value="${esc(a.unita||'pz')}" placeholder="pz / bott / kg / lt"></div>
     </div>
     <div class="grid2 field">
-      <div><div class="label" style="margin-bottom:6px">Soglia minima</div><input id="ar_sog" type="number" class="input" value="${a.soglia_min||0}"></div>
-      <div><div class="label" style="margin-bottom:6px">Costo medio /${esc(a.unita||'u')}</div><input id="ar_costo" type="number" step="0.01" class="input" value="${a.costo_medio||0}"></div>
+      <div><div class="label" style="margin-bottom:6px">Soglia minima (${esc(a.unita||'pz')})</div><input id="ar_sog" type="number" class="input" value="${a.soglia_min||0}"></div>
+      <div><div class="label" style="margin-bottom:6px">Formato · cl per ${esc(a.unita||'pz')}</div><input id="ar_cl" type="number" step="1" class="input" value="${a.capacita_cl==null?'':a.capacita_cl}" placeholder="es. 70" oninput="arCost('cl')"></div>
     </div>
+    <div class="field"><div style="display:flex;gap:6px;flex-wrap:wrap">${[33,50,70,75,100,150,300].map(v=>`<span class="chip" style="cursor:pointer" onclick="document.getElementById('ar_cl').value=${v};arCost('cl')">${v>=100?(v/100)+' L':v+' cl'}</span>`).join('')}</div></div>
     <div class="field">${toggleChip('ar_vend','Vendibile come bottiglia a listino',a.vendibile)}</div>
     <div class="field"><div class="label" style="margin-bottom:6px">Prezzo di vendita bottiglia € (usato se vendibile)</div><input id="ar_prezzo" type="number" step="0.5" class="input" value="${a.prezzo_vendita==null?'':a.prezzo_vendita}" placeholder="es. 140"></div>
     <div class="field"><div class="label" style="margin-bottom:6px">Fornitore</div><select id="ar_forn" class="input"><option value="">—</option>${S.contatti.filter(x=>x.categoria==='fornitore').map(x=>`<option value="${x.id}" ${a.fornitore_id===x.id?'selected':''}>${esc(x.nome)}</option>`).join('')}</select></div>
+    <div class="card" style="padding:14px;margin-bottom:14px">
+      <div class="label" style="margin-bottom:8px">Costo — bottiglia ⇄ litro ⇄ cl (collegati)</div>
+      <div class="grid2">
+        <div><div class="label" style="margin-bottom:6px">€ / ${esc(a.unita||'bottiglia')}</div><input id="ar_costo" type="number" step="0.01" class="input" value="${a.costo_medio||0}" oninput="arCost('bott')"></div>
+        <div><div class="label" style="margin-bottom:6px">€ / litro</div><input id="ar_costo_l" type="number" step="0.01" class="input" value="${(a.capacita_cl&&a.costo_medio!=null&&a.costo_medio!=='')?(Math.round(Number(a.costo_medio)*100/Number(a.capacita_cl)*100)/100):''}" oninput="arCost('litro')"></div>
+      </div>
+      <div id="ar_cl_read" class="dim" style="font-size:12px;margin-top:8px">—</div>
+    </div>
     ${id&&mov.length?`<div class="field"><div class="label" style="margin-bottom:6px">Movimenti recenti</div>${mov.map(m=>`<div style="display:flex;justify-content:space-between;font-size:13px;padding:7px 0;border-top:1px solid var(--border)"><span>${m.tipo==='carico'?'Carico':'Scarico'} <span class="dim">· ${esc(fmtShort(m.data))}${m.serata_id?' · serata':''}</span></span><span style="color:${m.tipo==='carico'?'var(--accent)':'var(--text2)'}">${m.tipo==='carico'?'+':'−'}${m.quantita}</span></div>`).join('')}</div>`:''}
     <div style="display:flex;gap:8px"><button onclick="saveArticolo(${id||'null'})" class="btn btn-accent" style="flex:1">Salva</button>${id?`<button onclick="delArticolo(${id})" class="btn btn-danger">Elimina</button>`:''}</div>`;
-  showModal();
+  showModal(); setTimeout(()=>{try{arCost('bott');}catch(e){}},0);
 }
-async function saveArticolo(id){const o={nome:$('#ar_nome').value.trim(),categoria:$('#ar_cat').value,unita:$('#ar_un').value||'pz',soglia_min:+$('#ar_sog').value||0,costo_medio:+$('#ar_costo').value||0,vendibile:isOn('ar_vend'),prezzo_vendita:$('#ar_prezzo').value!==''?+$('#ar_prezzo').value:null,fornitore_id:$('#ar_forn').value?+$('#ar_forn').value:null};if(!o.nome)return alert('Nome obbligatorio');if(id)await db.from('articoli').update(o).eq('id',id);else await db.from('articoli').insert(o);await reloadAll();hideModal();render();}
+async function saveArticolo(id){const o={nome:$('#ar_nome').value.trim(),categoria:$('#ar_cat').value,unita:$('#ar_un').value||'pz',soglia_min:+$('#ar_sog').value||0,costo_medio:+$('#ar_costo').value||0,vendibile:isOn('ar_vend'),prezzo_vendita:$('#ar_prezzo').value!==''?+$('#ar_prezzo').value:null,fornitore_id:$('#ar_forn').value?+$('#ar_forn').value:null,capacita_cl:$('#ar_cl').value!==''?+$('#ar_cl').value:null};if(!o.nome)return alert('Nome obbligatorio');if(id)await db.from('articoli').update(o).eq('id',id);else await db.from('articoli').insert(o);await reloadAll();hideModal();render();}
 async function delArticolo(id){if(confirm('Eliminare l articolo e tutti i suoi movimenti?')){await db.from('articoli').delete().eq('id',id);await reloadAll();hideModal();render();}}
 async function movimento(id,tipo){const q=prompt((tipo==='carico'?'Quantità in carico (arrivo merce)':'Quantità in scarico (rettifica/rottura)')+':');if(q==null)return;const n=Number(String(q).replace(',','.'));if(!(n>0))return;const row={articolo_id:id,tipo:tipo,quantita:n,data:today()};if(tipo==='carico'){const c=prompt('Costo unitario d\'acquisto (€) — lascia vuoto per tenere il costo medio attuale:');if(c!=null&&c!=='')row.costo_unitario=Number(String(c).replace(',','.'));}await db.from('movimenti').insert(row);await reloadAll();openArticolo(id);}
 // ---- Listino prodotti (con ricette) ----
@@ -1357,15 +1433,16 @@ function openProdotto(id){
     <div class="dim" style="font-size:12px;margin-bottom:12px">Le bottiglie vendute intere NON si creano qui: rendile "vendibili" dalle Giacenze. Qui crei cocktail/vino/food con ricetta.</div>
     ${id?`<div class="card" style="padding:14px;margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;margin-bottom:8px"><div class="label">Ricetta (distinta base)</div><div class="dim" style="font-size:12px">costo ${eur(co)}</div></div>
-      ${ric.map(r=>{const a=S.articoli.find(x=>x.id===r.articolo_id)||{};return `<div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:5px 0;border-top:1px solid var(--border)"><span>${esc(a.nome||'?')} <span class="dim">· ${r.quantita} ${esc(a.unita||'')}</span></span><button onclick="delRicetta(${r.id},${id})" class="btn btn-sm btn-ghost">×</button></div>`;}).join('')||'<div class="dim" style="font-size:12px">Nessun ingrediente (ignora se è una bottiglia collegata sopra).</div>'}
-      <div style="display:flex;gap:6px;margin-top:8px"><select id="ric_art" class="input" style="flex:1;padding:8px">${S.articoli.map(a=>`<option value="${a.id}">${esc(a.nome)} (${esc(a.unita||'')})</option>`).join('')}</select><input id="ric_q" type="number" step="0.1" class="input" style="width:66px;padding:8px" placeholder="q.tà"><button onclick="addRicetta(${id})" class="btn btn-accent btn-sm">+</button></div>
+      ${ric.map(r=>{const a=S.articoli.find(x=>x.id===r.articolo_id)||{};return `<div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:5px 0;border-top:1px solid var(--border)"><span>${esc(a.nome||'?')} <span class="dim">· ${r.cl?fmtCl(r.cl):(r.quantita+' '+esc(a.unita||''))} · ${eur((r.quantita||0)*costoUnit(a))}</span></span><button onclick="delRicetta(${r.id},${id})" class="btn btn-sm btn-ghost">×</button></div>`;}).join('')||'<div class="dim" style="font-size:12px">Nessun ingrediente (ignora se è una bottiglia collegata sopra).</div>'}
+      <div style="display:flex;gap:6px;margin-top:8px"><select id="ric_art" class="input" style="flex:1;padding:8px" onchange="ricUnit(this)">${S.articoli.map(a=>`<option value="${a.id}" data-cl="${a.capacita_cl||0}">${esc(a.nome)} (${esc(a.unita||'')})</option>`).join('')}</select><input id="ric_q" type="number" step="0.1" class="input" style="width:66px;padding:8px" placeholder="q.tà"><button onclick="addRicetta(${id})" class="btn btn-accent btn-sm">+</button></div>
     </div>`:'<div class="dim" style="font-size:12px;margin-bottom:14px">Salva, poi potrai aggiungere gli ingredienti della ricetta.</div>'}
     <div style="display:flex;gap:8px"><button onclick="saveProdotto(${id||'null'})" class="btn btn-accent" style="flex:1">Salva</button>${id?`<button onclick="delProdotto(${id})" class="btn btn-danger">Elimina</button>`:''}</div>`;
-  showModal();
+  showModal(); setTimeout(()=>{const s=document.getElementById('ric_art');if(s)ricUnit(s);},0);
 }
 async function saveProdotto(id){const o={nome:$('#pr_nome').value.trim(),categoria:$('#pr_cat').value||'altro',prezzo_vendita:+$('#pr_prezzo').value||0,articolo_id:null};if(!o.nome)return alert('Nome obbligatorio');if(id){await db.from('prodotti').update(o).eq('id',id);await reloadAll();render();}else{const r=await db.from('prodotti').insert(o).select().single();await reloadAll();if(r.data)openProdotto(r.data.id);else{hideModal();render();}}}
 async function delProdotto(id){if(confirm('Eliminare il prodotto?')){await db.from('prodotti').delete().eq('id',id);await reloadAll();hideModal();render();}}
-async function addRicetta(pid){const aid=+$('#ric_art').value,q=Number(String($('#ric_q').value).replace(',','.'));if(!(q>0))return alert('Quantità non valida');await db.from('ricette').insert({prodotto_id:pid,articolo_id:aid,quantita:q});await reloadAll();openProdotto(pid);}
+function ricUnit(sel){const o=sel.options[sel.selectedIndex];const cl=o?+o.dataset.cl:0;const q=document.getElementById('ric_q');if(q)q.placeholder=cl>0?'cl':'q.tà';}
+async function addRicetta(pid){const aid=+$('#ric_art').value,q=Number(String($('#ric_q').value).replace(',','.'));if(!(q>0))return alert('Quantità non valida');const art=S.articoli.find(x=>x.id===aid)||{};const cap=Number(art.capacita_cl||0);const row=cap>0?{prodotto_id:pid,articolo_id:aid,cl:q,quantita:Math.round((q/cap)*10000)/10000}:{prodotto_id:pid,articolo_id:aid,quantita:q};await db.from('ricette').insert(row);await reloadAll();openProdotto(pid);}
 async function delRicetta(rid,pid){await db.from('ricette').delete().eq('id',rid);await reloadAll();openProdotto(pid);}
 
 // ---- Conto economico serata ----
