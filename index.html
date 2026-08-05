@@ -2653,7 +2653,14 @@ function renderConta(){
 const eur=n=>'€'+(Math.round(Number(n||0)*100)/100).toLocaleString('it-IT',{minimumFractionDigits:0,maximumFractionDigits:2});
 function consumoVendite(aid){let c=0;S.vendite.forEach(v=>{if(v.articolo_id){if(v.articolo_id===aid)c+=Number(v.quantita||0);return;}const p=S.prodotti.find(x=>x.id===v.prodotto_id);if(!p)return;if(p.articolo_id===aid)c+=Number(v.quantita||0);else S.ricette.filter(r=>r.prodotto_id===p.id&&r.articolo_id===aid).forEach(r=>c+=Number(r.quantita||0)*Number(v.quantita||0));});return c;}
 function giacenza(aid){let g=0;S.movimenti.forEach(m=>{if(m.articolo_id===aid)g+=(m.tipo==='carico'?1:-1)*Number(m.quantita||0);});g-=consumoVendite(aid);return Math.round(g*100)/100;}
-function costoUnit(a){if(!a)return 0;let q=0,val=0;S.movimenti.forEach(m=>{if(m.articolo_id===a.id&&m.tipo==='carico'&&m.costo_unitario!=null&&m.costo_unitario!==''){q+=Number(m.quantita||0);val+=Number(m.quantita||0)*Number(m.costo_unitario);}});return q>0?val/q:Number(a.costo_medio||0);}
+/* Il prezzo scritto in scheda COMANDA: è quello che l'app usa ovunque —
+   valore magazzino, costo a porzione, costo merce delle serate, consuntivi.
+   La media dei carichi resta come riferimento e come ripiego se il prezzo
+   non è stato impostato. Prima era il contrario, e un costo digitato male
+   in un carico falsava tutti i margini senza che si potesse correggerlo. */
+function costoCarichi(a){if(!a)return 0;let q=0,val=0;S.movimenti.forEach(m=>{if(m.articolo_id===a.id&&m.tipo==='carico'&&m.costo_unitario!=null&&m.costo_unitario!==''){q+=Number(m.quantita||0);val+=Number(m.quantita||0)*Number(m.costo_unitario);}});return q>0?val/q:0;}
+function nCarichi(a){return a?S.movimenti.filter(m=>m.articolo_id===a.id&&m.tipo==='carico'&&m.costo_unitario).length:0;}
+function costoUnit(a){if(!a)return 0;const listino=Number(a.costo_medio||0);if(listino>0)return listino;return costoCarichi(a);}
 function costoProdotto(p){if(!p)return 0;if(p.articolo_id){return costoUnit(S.articoli.find(x=>x.id===p.articolo_id));}let c=0;S.ricette.filter(r=>r.prodotto_id===p.id).forEach(r=>{const art=S.articoli.find(x=>x.id===r.articolo_id);if(r.qta_base!=null&&r.qta_base!==''){c+=Number(r.qta_base)*costoBase(art);}else if(r.cl!=null&&r.cl!==''){c+=Number(r.cl)*costoCl(art);}else{c+=Number(r.quantita||0)*costoUnit(art);}});return c;}
 function daOrdinare(a){return Math.max(0,Number(a.soglia_min||0)-giacenza(a.id));}
 function fmtCl(cl){cl=Number(cl||0);if(!cl)return '';return (cl%1===0?cl:cl.toFixed(1))+' cl';}
@@ -3114,20 +3121,19 @@ function openArticolo(id){
     <div class="field"><div class="label" style="margin-bottom:6px">Prezzo di vendita bottiglia € (usato se vendibile)</div><input id="ar_prezzo" type="number" step="0.5" class="input" value="${a.prezzo_vendita==null?'':a.prezzo_vendita}" placeholder="es. 140"></div>
     <div class="field"><div class="label" style="margin-bottom:6px">Fornitore</div><select id="ar_forn" class="input"><option value="">—</option>${S.contatti.filter(x=>x.categoria==='fornitore').map(x=>`<option value="${x.id}" ${a.fornitore_id===x.id?'selected':''}>${esc(x.nome)}</option>`).join('')}</select></div>
     <div class="card" style="padding:14px;margin-bottom:14px">
-      <div class="label" style="margin-bottom:8px">Prezzo d'acquisto</div>
+      <div class="label" style="margin-bottom:8px">Prezzo d'acquisto — usato in tutti i conti</div>
       <div><div class="label" style="margin-bottom:6px">Quanto paghi 1 ${esc(a.unita||'confezione')} (€)</div>
         <input id="ar_costo" type="number" step="0.01" class="input" value="${a.costo_medio||0}" oninput="arCost()">
-        <div class="dim" style="font-size:11px;margin-top:5px">Il prezzo pieno della ${esc(a.unita||'confezione')}. Costo a bottiglia, al cl e al litro li calcolo io qui sotto.</div>
+        <div class="dim" style="font-size:11px;margin-top:5px">Questo prezzo comanda ovunque: valore magazzino, costo a porzione, costo merce delle serate e consuntivi — anche quelli già chiusi si riallineano.</div>
       </div>
       <div id="ar_costo_l_wrap" style="display:none"><input id="ar_costo_l" type="hidden"><span id="ar_costo_l_lbl"></span></div>
       <div id="ar_cl_read" class="dim" style="font-size:12px;margin-top:8px">—</div>
-      ${(function(){const eff=costoUnit(a),man=Number(a.costo_medio||0);
-        if(!(eff>0))return '';
-        const n=S.movimenti.filter(m=>m.articolo_id===id&&m.tipo==='carico'&&m.costo_unitario).length;
-        const diff=man>0&&Math.abs(eff-man)/eff>0.05;
+      ${(function(){const car=costoCarichi(a),man=Number(a.costo_medio||0),n=nCarichi(a);
+        if(!(car>0))return man>0?'':'<div class="dim" style="font-size:12px;margin-top:8px">Nessun prezzo impostato: questo articolo entra a costo zero nei conti.</div>';
+        const diff=man>0&&Math.abs(car-man)/Math.max(car,man)>0.05;
         return '<div style="font-size:12px;margin-top:8px;padding:9px 11px;border-radius:8px;background:'+(diff?'rgba(201,168,80,.12)':'rgba(255,255,255,.04)')+';border:1px solid var(--border)">'+
-          'Costo <b>realmente usato</b> nei conti: <b>'+eur(eff)+'/'+esc(a.unita||'u')+'</b> <span class="dim">(media di '+n+' caric'+(n===1?'o':'hi')+')</span>'+
-          (diff?'<br>Il campo qui sopra dice '+eur(man)+': vale solo se non ci sono carichi. <button class="btn ghost sm" style="margin-top:6px" onclick="document.getElementById(\'ar_costo\').value='+(Math.round(eff*100)/100)+';arCost()">Allinea a '+eur(eff)+'</button>':'')+
+          'Nei carichi registrati risulta <b>'+eur(car)+'/'+esc(a.unita||'u')+'</b> <span class="dim">(media di '+n+' caric'+(n===1?'o':'hi')+')</span>'+
+          (diff?'<br>Diverso dal prezzo qui sopra ('+eur(man)+'), che è quello che conta. Se il giusto è quello dei carichi: <button class="btn ghost sm" style="margin-top:6px" onclick="document.getElementById(\'ar_costo\').value='+(Math.round(car*100)/100)+';arCost()">Usa '+eur(car)+'</button>':'')+
         '</div>';})()}
     </div>
     ${id&&mov.length?`<div class="field"><div class="label" style="margin-bottom:6px">Movimenti recenti</div>${mov.map(m=>`<div style="display:flex;justify-content:space-between;font-size:13px;padding:7px 0;border-top:1px solid var(--border)"><span>${m.tipo==='carico'?'Carico':'Scarico'} <span class="dim">· ${esc(fmtShort(m.data))}${m.serata_id?' · serata':''}</span></span><span style="color:${m.tipo==='carico'?'var(--accent)':'var(--text2)'}">${m.tipo==='carico'?'+':'−'}${m.quantita}</span></div>`).join('')}</div>`:''}
