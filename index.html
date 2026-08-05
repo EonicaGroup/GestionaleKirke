@@ -820,6 +820,11 @@ async function generaConsuntivo(sid,apri){
    Niente incassi, niente margini, niente staff, niente report: non li carica nemmeno.
    ===================================================================== */
 let calMese=null;
+function orgNome(s){
+  if(!s||!s.organizzatore_id)return '';
+  const c=(S.contatti||[]).find(x=>x.id===s.organizzatore_id);
+  return (c&&c.nome)||'';
+}
 function renderCalendarioSolo(){
   const oggi=today();
   const ser=(S.serate||[]).filter(s=>s.stato!=='annullata');
@@ -847,10 +852,11 @@ function renderCalendarioSolo(){
   for(let d=1;d<=gg;d++){
     const ds=calMese+'-'+String(d).padStart(2,'0'), s=byDate[ds], og=ds===oggi;
     if(s){
-      const col=tipColor(s.tipologia_id), nome=(tipById(s.tipologia_id)||{}).nome||'Serata';
-      h+=`<div style="min-height:62px;border-radius:10px;padding:5px 6px;background:${hexA(col,.16)};border:1px solid ${hexA(col,.5)};border-left:3px solid ${col};${og?'box-shadow:0 0 0 2px var(--accent)':''}">
+      const col=tipColor(s.tipologia_id), nome=(tipById(s.tipologia_id)||{}).nome||'Serata', org=orgNome(s);
+      h+=`<div style="min-height:66px;border-radius:10px;padding:5px 6px;background:${hexA(col,.16)};border:1px solid ${hexA(col,.5)};border-left:3px solid ${col};${og?'box-shadow:0 0 0 2px var(--accent)':''}">
         <div style="font-size:12px;font-weight:700">${d}</div>
-        <div style="font-size:9px;line-height:1.15;font-weight:600;margin-top:2px;color:var(--text2);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">${esc(nome)}</div>
+        ${org?`<div style="font-size:9.5px;line-height:1.15;font-weight:700;margin-top:2px;color:var(--text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${esc(org)}</div>`:''}
+        <div style="font-size:8.5px;line-height:1.15;font-weight:600;margin-top:1px;color:var(--text2);display:-webkit-box;-webkit-line-clamp:${org?2:3};-webkit-box-orient:vertical;overflow:hidden">${esc(nome)}</div>
       </div>`;
     } else {
       h+=`<div style="min-height:62px;border-radius:10px;border:1px solid var(--border);padding:5px 6px;opacity:.3;${og?'box-shadow:0 0 0 2px var(--accent)':''}">
@@ -867,10 +873,11 @@ function renderCalendarioSolo(){
     h+=prossime.map(s=>{
       const col=tipColor(s.tipologia_id);
       const q=Math.round((new Date(s.data+'T00:00:00')-new Date(oggi+'T00:00:00'))/864e5);
+      const org=orgNome(s);
       return `<div class="card" style="padding:11px 13px;margin-bottom:7px;display:flex;align-items:center;gap:10px;border-left:3px solid ${col}">
-        <div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600;text-transform:capitalize">${esc(fmtDay(s.data))}</div>
-          <div class="dim" style="font-size:12px;margin-top:1px">${esc((tipById(s.tipologia_id)||{}).nome||'Serata')}</div></div>
-        <span class="pill" style="font-size:11px">${q===0?'oggi':(q===1?'domani':'fra '+q+' giorni')}</span></div>`;}).join('');
+        <div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600;text-transform:capitalize">${esc(fmtDay(s.data))}${org?' <span style="font-weight:700;color:var(--accent)">· '+esc(org)+'</span>':''}</div>
+          <div class="dim" style="font-size:12px;margin-top:1px">${esc((tipById(s.tipologia_id)||{}).nome||'Serata')}${org?'':' <span style="opacity:.65">· serata nostra</span>'}</div></div>
+        <span class="pill" style="font-size:11px;white-space:nowrap">${q===0?'oggi':(q===1?'domani':'fra '+q+' giorni')}</span></div>`;}).join('');
   }
   h+=`</div>`; $('#view').innerHTML=h;
 }
@@ -2174,6 +2181,13 @@ function catRadici(){return catList().filter(c=>!c.parent_id).sort((a,b)=>(a.ord
 function catPath(id){const c=catById(id);if(!c)return '';const p=c.parent_id?catById(c.parent_id):null;return p?(p.nome+' › '+c.nome):c.nome;}
 function catColore(id){const c=catById(id);if(!c)return '#8a8a8a';if(c.colore)return c.colore;const p=c.parent_id?catById(c.parent_id):null;return (p&&p.colore)||'#8a8a8a';}
 // tutti gli id di una categoria e delle sue sottocategorie
+// cl di una porzione per questa categoria; se non impostata, eredita dalla madre
+function porzioneCl(a){
+  const c=catById(artCat(a)); if(!c)return 0;
+  if(Number(c.porzione_cl)>0)return Number(c.porzione_cl);
+  const p=c.parent_id?catById(c.parent_id):null;
+  return (p&&Number(p.porzione_cl)>0)?Number(p.porzione_cl):0;
+}
 function catRamo(id){const out=[id];catFigli(id).forEach(f=>out.push(f.id));return out;}
 function artCat(a){return a.categoria_id||null;}
 
@@ -2232,6 +2246,9 @@ function openCategoria(id,parent){
       <div style="flex:1"><label class="label">Colore</label><input class="input" id="ct_col" type="color" value="${esc(c&&c.colore?c.colore:'#C79A54')}" style="height:44px;padding:4px"></div>
       <div style="flex:1"><label class="label">Ordine</label><input class="input" id="ct_ord" type="number" value="${c?(c.ordine||0):(catList().length+1)}"></div>
     </div>
+    <label class="label" style="margin-top:12px">Costo a porzione — cl versati</label>
+    <input class="input" id="ct_porz" type="number" step="0.5" value="${c&&c.porzione_cl!=null?c.porzione_cl:''}" placeholder="es. 4 per i distillati">
+    <div class="dim" style="font-size:11px;margin-top:5px;line-height:1.45">Se lo compili, in Giacenze compare quanto costa una dose. Lascialo vuoto dove non serve (soft drink, amari, guarnizioni). Le sottocategorie lo ereditano.</div>
     <div style="display:flex;gap:8px;margin-top:18px">
       <button class="btn" style="flex:1" onclick="saveCategoria(${id||'null'})">Salva</button>
       ${c?`<button class="btn ghost" onclick="delCategoria(${c.id})">Elimina</button>`:''}
@@ -2243,7 +2260,9 @@ async function saveCategoria(id){
   const nome=document.getElementById('ct_nome').value.trim();
   if(!nome){toast('Serve un nome');return;}
   const p=document.getElementById('ct_parent').value;
-  const row={nome:nome,parent_id:p?+p:null,colore:document.getElementById('ct_col').value,ordine:+document.getElementById('ct_ord').value||0};
+  const _pz=document.getElementById('ct_porz').value;
+  const row={nome:nome,parent_id:p?+p:null,colore:document.getElementById('ct_col').value,ordine:+document.getElementById('ct_ord').value||0,
+             porzione_cl:(_pz===''?null:+_pz)};
   const r=id?await db.from('mag_categorie').update(row).eq('id',id):await db.from('mag_categorie').insert(row);
   if(r.error){toast(/duplicat|uniq/i.test(r.error.message)?'Esiste già una categoria con questo nome':('Errore: '+r.error.message));return;}
   hideModal();await reloadAll();render();toast('Categoria salvata');
@@ -2795,6 +2814,9 @@ function magRow(a){
   const meta=[];
   if(cont>0&&bu)meta.push(pezziUn(a)>1?(pezziUn(a)+' × '+fmtBase(cont,bu)):fmtBase(cont,bu));
   if(cu>0)meta.push(eur(cu)+' a '+un);
+  // costo di una porzione: solo dove ha senso (distillati), impostato sulla categoria
+  const pz=porzioneCl(a), cbase=costoBase(a);
+  const porz=(pz>0&&cbase>0&&bu==='cl')?{cl:pz,costo:cbase*pz}:null;
   if(val>0)meta.push('val '+eur(val));
   const cov=coperturaSerate(a),sub2=[];
   if(cu<=0)sub2.push('⚠︎ imposta costo');
@@ -2808,6 +2830,7 @@ function magRow(a){
   return `<div class="card magrow" data-s="${esc(key)}" style="padding:9px 10px;margin-bottom:7px;display:flex;align-items:center;gap:6px;border-left:3px solid ${esc(col)}">
     <div class="tap" onclick="openArticolo(${a.id})" style="min-width:0;flex:1;padding:3px 0">
       <div style="font-size:14px;font-weight:500;line-height:1.25">${esc(a.nome)}${sotto}</div>
+      ${porz?`<div style="font-size:12.5px;font-weight:600;color:var(--accent);margin-top:2px">${eur(porz.costo)} a porzione <span style="font-weight:400;opacity:.75">· ${numIt(porz.cl)} cl</span></div>`:''}
       ${meta.length?`<div class="dim" style="font-size:11px;margin-top:2px">${meta.join(' · ')}</div>`:''}
     </div>
     <span id="gd_${a.id}" style="font-size:12px;font-weight:700;color:var(--accent);display:none;min-width:22px;text-align:right"></span>
