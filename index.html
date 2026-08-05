@@ -2725,12 +2725,25 @@ function arCost(){
   const unEl0=document.getElementById('ar_un'), uSel=(unEl0&&unEl0.value)||'pz';
   const multi=['cassa','cartone','conf','pacco'].includes(uSel.toLowerCase());
   const pzW=document.getElementById('ar_pz_wrap'), pzE=document.getElementById('ar_pz');
+  const tipoEl=document.getElementById('ar_pz_tipo');
+  const tipo=(tipoEl&&tipoEl.value)||'bottiglia';
+  const plur={bottiglia:'bottiglie',lattina:'lattine',brick:'brick',pezzo:'pezzi'}[tipo]||'pezzi';
   if(pzW){
     pzW.style.display=multi?'':'none';
     const nm=document.getElementById('ar_pz_un');
     if(nm)nm.textContent={cassa:'una cassa',cartone:'un cartone',conf:'una confezione',pacco:'un pacco'}[uSel.toLowerCase()]||'una confezione';
+    const nm2=document.getElementById('ar_pz_nome'); if(nm2)nm2.textContent=plur;
   }
   const pz=multi?Math.max(1,+((pzE&&pzE.value)||0)):1;
+  // il contenuto si scrive SEMPRE per singolo pezzo, mai per confezione
+  const cLbl=document.getElementById('ar_cont_lbl');
+  if(cLbl)cLbl.innerHTML=multi
+    ? ('2️⃣ Quanto contiene <b>1 '+tipo+'</b>?')
+    : ('Quanto contiene 1 '+({bt:'bottiglia',lattina:'lattina',kg:'confezione',L:'confezione'}[uSel]||uSel||'confezione'));
+  const cHint=document.getElementById('ar_cont_hint');
+  if(cHint)cHint.innerHTML=multi
+    ? ('Il contenuto della <b>singola '+tipo+'</b> (es. 33 cl), non quello di tutta la '+(uSel.toLowerCase()==='cassa'?'cassa':'confezione')+': il totale lo calcolo io.')
+    : '';
   const cont=contPz*pz;                     // contenuto totale di UNA unità di conteggio
   let cb=+bEl.value||0;
   const secF=base==='cl'?100:(base==='g'?1000:0), secN=base==='cl'?'L':(base==='g'?'kg':'');
@@ -2748,15 +2761,28 @@ function arCost(){
   if(rEl)rEl.innerHTML = pzMancante
     ? '<span style="color:#e9c589">Scrivi da quanti pezzi è la confezione, altrimenti il costo al '+base+' non torna.</span>'
     : (cont>0
-       ? ((pz>1?('<b>'+pz+' × '+fmtBase(contPz,base)+'</b> = '+fmtBase(cont,base)+' a '+(uSel.toLowerCase()==='cassa'?'cassa':'confezione')+' · '+eur(cb/pz)+' a pezzo · '):('Contenuto '+fmtBase(cont,base)+' · '))
+       ? ((pz>1?('<b>'+pz+' '+plur+' × '+fmtBase(contPz,base)+'</b> = '+fmtBase(cont,base)+' a '+(uSel.toLowerCase()==='cassa'?'cassa':'confezione')+' · '+eur(cb/pz)+' a '+tipo+' · '):('Contenuto '+fmtBase(cont,base)+' · '))
           +'<b>'+eurBase(per)+'/'+base+'</b>'+(secF>0?(' · '+eur(per*secF)+'/'+secN):''))
        : 'Imposta il contenuto per calcolare il costo unitario');
-  arContWarn(base,cont,per,secF,secN);
+  arContWarn(base,cont,per,secF,secN,multi,pz,contPz,tipo);
 }
 /* Rete di sicurezza: se il numero porta a un prezzo assurdo, quasi sempre
    è stata sbagliata l'unità (0,7 scritto in cl invece che in L). */
-function arContWarn(base,cont,per,secF,secN){
+function arContWarn(base,cont,per,secF,secN,multi,pz,contPz,tipo){
   const w=document.getElementById('ar_cont_warn'); if(!w)return;
+  /* Errore più frequente sulle casse: nel contenuto finisce il totale della
+     confezione invece della singola bottiglia, e la giacenza risulta pz volte
+     più grande. Se il numero è compatibile con contPz = pz × formato, lo dico. */
+  if(multi&&pz>1&&contPz>0&&base==='cl'){
+    const singola=contPz/pz;
+    if(contPz>150&&singola>=15&&singola<=200){
+      w.innerHTML='Hai scritto <b>'+fmtBase(contPz,base)+'</b>: sembra il contenuto di <b>tutta la '+
+        'confezione</b>, non di una '+(tipo||'bottiglia')+'. Con '+pz+' pezzi risulterebbe '+fmtBase(contPz*pz,base)+
+        ' a confezione. Il valore giusto è probabilmente <b>'+fmtBase(singola,base)+'</b>.'+
+        '<button class="btn ghost sm" style="margin-left:8px" onclick="arDividi('+pz+')">Correggi in '+fmtBase(singola,base)+'</button>';
+      w.style.display=''; return;
+    }
+  }
   // caso frequente: nel campo "come lo conti" è finito cl o L
   const unEl=document.getElementById('ar_un');
   const uv=(unEl&&unEl.value||'').toLowerCase();
@@ -2781,6 +2807,12 @@ function arContWarn(base,cont,per,secF,secN){
     }
   }
   w.innerHTML=msg; w.style.display=msg?'':'none';
+}
+/* Riporta il contenuto dalla confezione al singolo pezzo. */
+function arDividi(pz){
+  const e=document.getElementById('ar_cl'); if(!e||!(pz>1))return;
+  const v=(+e.value||0)/pz;
+  e.value=Math.round(v*1000)/1000; arCost();
 }
 function arFixUm(um){
   const u=document.getElementById('ar_cl_um'); if(!u)return;
@@ -3056,11 +3088,6 @@ function openArticolo(id){
           ${['bt','pz','cassa','lattina','kg','L'].includes(a.unita||'pz')?'':`<option value="${esc(a.unita)}" selected>${esc(a.unita)} (valore attuale)</option>`}
         </select>
         <div class="dim" style="font-size:11px;margin-top:5px">È l'unità della <b>giacenza</b>: quante ne hai. Il contenuto (cl, L) si imposta qui sotto.</div></div>
-      <div id="ar_pz_wrap" class="pl-full" style="display:none;margin-top:10px">
-        <div class="label" style="margin-bottom:6px">Da quanti pezzi è <span id="ar_pz_un">una cassa</span>?</div>
-        <input id="ar_pz" type="number" inputmode="numeric" min="1" step="1" class="input" value="${pezziUn(a)>1?pezziUn(a):''}" placeholder="es. 24" oninput="arCost()">
-        <div class="dim" style="font-size:11px;margin-top:5px">Quante bottiglie o lattine ci sono dentro. Serve per calcolare il costo reale al cl.</div>
-      </div>
     </div>
     <div class="grid2 field">
       <div><div class="label" style="margin-bottom:6px">Soglia minima (${esc(a.unita||'pz')})</div><input id="ar_sog" type="number" class="input" value="${a.soglia_min||0}"></div>
@@ -3070,11 +3097,22 @@ function openArticolo(id){
         <option value="pz" ${baseU(a)==='pz'?'selected':''}>Pezzi · pz</option>
       </select></div>
     </div>
-    <div class="field"><div class="label" style="margin-bottom:6px">Quanto contiene 1 ${esc(a.unita||'confezione')} <span id="ar_cont_u" class="dim"></span></div>
+    <div id="ar_pz_wrap" class="field" style="display:none">
+      <div class="label" style="margin-bottom:6px">1️⃣ Da quante <span id="ar_pz_nome">bottiglie</span> è <span id="ar_pz_un">una cassa</span>?</div>
+      <div style="display:flex;gap:8px">
+        <input id="ar_pz" type="number" inputmode="numeric" min="1" step="1" class="input" style="flex:1" value="${pezziUn(a)>1?pezziUn(a):''}" placeholder="es. 24" oninput="arCost()">
+        <select id="ar_pz_tipo" class="input" style="width:130px" onchange="arCost()">
+          <option value="bottiglia">bottiglie</option><option value="lattina" ${/lattin/i.test(a.nome||'')?'selected':''}>lattine</option><option value="brick">brick</option><option value="pezzo">pezzi</option>
+        </select>
+      </div>
+      <div class="dim" style="font-size:11px;margin-top:5px">Il numero di pezzi dentro la confezione. Qui <b>non</b> va il contenuto.</div>
+    </div>
+    <div class="field"><div class="label" style="margin-bottom:6px"><span id="ar_cont_lbl">Quanto contiene 1 ${esc(a.unita||'confezione')}</span> <span id="ar_cont_u" class="dim"></span></div>
       <div style="display:flex;gap:8px">
         <input id="ar_cl" type="number" step="0.01" class="input" style="flex:1" value="${contInput(a).v}" placeholder="es. 70" oninput="arCost()">
         <select id="ar_cl_um" class="input" style="width:96px" onchange="arCost()">${contUmOpts(baseU(a)||'cl',contInput(a).um)}</select>
       </div>
+      <div id="ar_cont_hint" class="dim" style="font-size:11px;margin-top:5px"></div>
       <div id="ar_cont_warn" style="display:none;font-size:12px;line-height:1.45;margin-top:8px;padding:9px 11px;border-radius:8px;background:rgba(201,168,80,.12);border:1px solid var(--accent-line);color:#e9c589"></div>
     </div>
     <div class="field">${toggleChip('ar_vend','Vendibile come bottiglia a listino',a.vendibile)}</div>
@@ -3087,6 +3125,14 @@ function openArticolo(id){
         <div id="ar_costo_l_wrap"><div class="label" style="margin-bottom:6px"><span id="ar_costo_l_lbl">€ / litro</span></div><input id="ar_costo_l" type="number" step="0.01" class="input" value="" oninput="arCost()"></div>
       </div>
       <div id="ar_cl_read" class="dim" style="font-size:12px;margin-top:8px">—</div>
+      ${(function(){const eff=costoUnit(a),man=Number(a.costo_medio||0);
+        if(!(eff>0))return '';
+        const n=S.movimenti.filter(m=>m.articolo_id===id&&m.tipo==='carico'&&m.costo_unitario).length;
+        const diff=man>0&&Math.abs(eff-man)/eff>0.05;
+        return '<div style="font-size:12px;margin-top:8px;padding:9px 11px;border-radius:8px;background:'+(diff?'rgba(201,168,80,.12)':'rgba(255,255,255,.04)')+';border:1px solid var(--border)">'+
+          'Costo <b>realmente usato</b> nei conti: <b>'+eur(eff)+'/'+esc(a.unita||'u')+'</b> <span class="dim">(media di '+n+' caric'+(n===1?'o':'hi')+')</span>'+
+          (diff?'<br>Il campo qui sopra dice '+eur(man)+': vale solo se non ci sono carichi. <button class="btn ghost sm" style="margin-top:6px" onclick="document.getElementById(\'ar_costo\').value='+(Math.round(eff*100)/100)+';arCost()">Allinea a '+eur(eff)+'</button>':'')+
+        '</div>';})()}
     </div>
     ${id&&mov.length?`<div class="field"><div class="label" style="margin-bottom:6px">Movimenti recenti</div>${mov.map(m=>`<div style="display:flex;justify-content:space-between;font-size:13px;padding:7px 0;border-top:1px solid var(--border)"><span>${m.tipo==='carico'?'Carico':'Scarico'} <span class="dim">· ${esc(fmtShort(m.data))}${m.serata_id?' · serata':''}</span></span><span style="color:${m.tipo==='carico'?'var(--accent)':'var(--text2)'}">${m.tipo==='carico'?'+':'−'}${m.quantita}</span></div>`).join('')}</div>`:''}
     <div style="display:flex;gap:8px"><button onclick="saveArticolo(${id||'null'})" class="btn btn-accent" style="flex:1">Salva</button>${id?`<button onclick="delArticolo(${id})" class="btn btn-danger">Elimina</button>`:''}</div>`;
