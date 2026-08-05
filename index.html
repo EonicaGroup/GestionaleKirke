@@ -2745,17 +2745,12 @@ function arCost(){
     ? ('Il contenuto della <b>singola '+tipo+'</b> (es. 33 cl), non quello di tutta la '+(uSel.toLowerCase()==='cassa'?'cassa':'confezione')+': il totale lo calcolo io.')
     : '';
   const cont=contPz*pz;                     // contenuto totale di UNA unità di conteggio
-  let cb=+bEl.value||0;
+  const cb=+bEl.value||0;
   const secF=base==='cl'?100:(base==='g'?1000:0), secN=base==='cl'?'L':(base==='g'?'kg':'');
   if(cuEl)cuEl.textContent='';
-  if(lLbl)lLbl.textContent=secF>0?('€ / '+secN):'';
-  if(lWrap)lWrap.style.display=secF>0?'':'none';
-  // i due campi costo si aggiornano a vicenda, ma MAI quello su cui stai scrivendo
-  if(lEl&&secF>0){
-    const att=document.activeElement;
-    if(att===lEl){ if(cont>0){cb=(+lEl.value||0)*cont/secF; if(att!==bEl)bEl.value=Math.round(cb*100)/100;} }
-    else if(cont>0 && att!==lEl){ lEl.value=Math.round(cb*secF/cont*100)/100; }
-  }
+  /* Un solo campo di costo, e resta com'è scritto. I derivati (€/bottiglia,
+     €/cl, €/L) sono testo calcolato: niente campi che si riscrivono a vicenda. */
+  if(lWrap)lWrap.style.display='none';
   const per=cont>0?cb/cont:0;
   const pzMancante = multi && !(+((pzE&&pzE.value)||0) > 1);
   if(rEl)rEl.innerHTML = pzMancante
@@ -3119,11 +3114,12 @@ function openArticolo(id){
     <div class="field"><div class="label" style="margin-bottom:6px">Prezzo di vendita bottiglia € (usato se vendibile)</div><input id="ar_prezzo" type="number" step="0.5" class="input" value="${a.prezzo_vendita==null?'':a.prezzo_vendita}" placeholder="es. 140"></div>
     <div class="field"><div class="label" style="margin-bottom:6px">Fornitore</div><select id="ar_forn" class="input"><option value="">—</option>${S.contatti.filter(x=>x.categoria==='fornitore').map(x=>`<option value="${x.id}" ${a.fornitore_id===x.id?'selected':''}>${esc(x.nome)}</option>`).join('')}</select></div>
     <div class="card" style="padding:14px;margin-bottom:14px">
-      <div class="label" style="margin-bottom:8px">Costo (collegato all'unità base)</div>
-      <div class="grid2">
-        <div><div class="label" style="margin-bottom:6px">€ / ${esc(a.unita||'confezione')}</div><input id="ar_costo" type="number" step="0.01" class="input" value="${a.costo_medio||0}" oninput="arCost()"></div>
-        <div id="ar_costo_l_wrap"><div class="label" style="margin-bottom:6px"><span id="ar_costo_l_lbl">€ / litro</span></div><input id="ar_costo_l" type="number" step="0.01" class="input" value="" oninput="arCost()"></div>
+      <div class="label" style="margin-bottom:8px">Prezzo d'acquisto</div>
+      <div><div class="label" style="margin-bottom:6px">Quanto paghi 1 ${esc(a.unita||'confezione')} (€)</div>
+        <input id="ar_costo" type="number" step="0.01" class="input" value="${a.costo_medio||0}" oninput="arCost()">
+        <div class="dim" style="font-size:11px;margin-top:5px">Il prezzo pieno della ${esc(a.unita||'confezione')}. Costo a bottiglia, al cl e al litro li calcolo io qui sotto.</div>
       </div>
+      <div id="ar_costo_l_wrap" style="display:none"><input id="ar_costo_l" type="hidden"><span id="ar_costo_l_lbl"></span></div>
       <div id="ar_cl_read" class="dim" style="font-size:12px;margin-top:8px">—</div>
       ${(function(){const eff=costoUnit(a),man=Number(a.costo_medio||0);
         if(!(eff>0))return '';
