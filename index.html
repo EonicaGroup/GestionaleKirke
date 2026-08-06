@@ -769,6 +769,66 @@ KIRKE Ritual Lounge · GLAMPING CIRCEO S.R.L.S. · documento generato dal gestio
 <div class="noprint" style="margin-top:22px"><button onclick="window.print()" style="padding:11px 18px;font-size:14px;border:0;border-radius:9px;background:#C79A54;color:#fff;cursor:pointer">Salva come PDF</button></div>
 </body></html>`;
 }
+/* =====================================================================
+   VISORE DOCUMENTI
+   I consuntivi si aprivano con window.open: dentro la PWA installata
+   diventa una finestra senza barra del browser, quindi senza «indietro»
+   e senza modo di tornare al gestionale se non chiudendo l'app.
+   Ora restano dentro l'app, in un overlay con la sua barra:
+   Chiudi · Stampa/PDF · Condividi. Il tasto indietro del telefono chiude.
+   ===================================================================== */
+function apriDoc(html,titolo){
+  let ov=document.getElementById('docov');
+  if(!ov){
+    ov=document.createElement('div'); ov.id='docov';
+    ov.style.cssText='position:fixed;inset:0;z-index:9999;background:#0f0f11;display:flex;flex-direction:column';
+    document.body.appendChild(ov);
+  }
+  ov.innerHTML=
+   '<div style="flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:calc(env(safe-area-inset-top,0px) + 10px) 12px 10px;background:#17171a;border-bottom:1px solid rgba(255,255,255,.1)">'+
+     '<button onclick="chiudiDoc()" style="flex:0 0 auto;background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.14);border-radius:9px;padding:9px 13px;font-size:14px;font-weight:600;cursor:pointer">← Chiudi</button>'+
+     '<div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e8e8ea;font-size:13px">'+esc(titolo||'Documento')+'</div>'+
+     '<button onclick="condividiDoc()" id="docshare" style="flex:0 0 auto;display:none;background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.14);border-radius:9px;padding:9px 12px;font-size:14px;cursor:pointer">Condividi</button>'+
+     '<button onclick="stampaDoc()" style="flex:0 0 auto;background:var(--accent,#c9a850);color:#1a1a1a;border:0;border-radius:9px;padding:9px 13px;font-size:14px;font-weight:600;cursor:pointer">Stampa / PDF</button>'+
+   '</div>'+
+   '<iframe id="docfr" style="flex:1;width:100%;border:0;background:#fff"></iframe>';
+  const fr=ov.querySelector('#docfr');
+  fr.srcdoc=html;                       // niente window.open: resta tutto qui dentro
+  ov.dataset.html=''; DOC_HTML=html; DOC_TITOLO=titolo||'Documento';
+  document.body.style.overflow='hidden';
+  if(navigator.share)ov.querySelector('#docshare').style.display='';
+  // il tasto indietro di Android/gesture chiude il documento invece di uscire
+  try{history.pushState({doc:1},'');}catch(e){}
+  return ov;
+}
+let DOC_HTML='',DOC_TITOLO='';
+/* I consuntivi archiviati sono file .html: se li apro con target=_blank
+   nella PWA finisco nello stesso vicolo cieco. Li mostro nel visore. */
+async function apriFileId(fid){
+  const f=(S.file||[]).find(x=>x.id===fid); if(!f)return;
+  if(/\.html?$/i.test(f.nome||'')){
+    try{const r=await fetch(f.url);if(r.ok){return apriDoc(await r.text(),f.nome);}}catch(e){}
+  }
+  try{window.open(f.url,'_blank','noopener');}catch(e){location.href=f.url;}
+}
+function chiudiDoc(){
+  const ov=document.getElementById('docov'); if(!ov)return;
+  ov.remove(); document.body.style.overflow='';
+  try{if(history.state&&history.state.doc)history.back();}catch(e){}
+}
+function stampaDoc(){
+  const fr=document.getElementById('docfr'); if(!fr)return;
+  try{fr.contentWindow.focus();fr.contentWindow.print();}catch(e){try{window.print();}catch(_){}}
+}
+async function condividiDoc(){
+  try{
+    const file=new File([DOC_HTML],DOC_TITOLO.replace(/[\\/:*?"<>|]/g,'-')+'.html',{type:'text/html'});
+    if(navigator.canShare&&navigator.canShare({files:[file]}))return navigator.share({files:[file],title:DOC_TITOLO});
+    await navigator.share({title:DOC_TITOLO,text:DOC_TITOLO});
+  }catch(e){}
+}
+window.addEventListener('popstate',()=>{const ov=document.getElementById('docov');if(ov){ov.remove();document.body.style.overflow='';}});
+
 async function generaConsuntivoStagione(apri){
   const html=consuntivoStagioneHtml();
   const nome='Consuntivo stagione — aggiornato al '+fmtShort(today())+'.html';
@@ -788,7 +848,7 @@ async function generaConsuntivoStagione(apri){
       await reloadAll();
     }
   }catch(e){}
-  if(apri){try{const w2=window.open('','_blank');if(w2){w2.document.write(html);w2.document.close();}}catch(e){}}
+  if(apri)apriDoc(html,'Consuntivo di stagione — '+fmtShort(today()));
   return html;
 }
 
@@ -810,7 +870,7 @@ async function generaConsuntivo(sid,apri){
       await reloadAll();
     }
   }catch(e){}
-  if(apri){try{const w2=window.open('','_blank');if(w2){w2.document.write(html);w2.document.close();}}catch(e){}}
+  if(apri)apriDoc(html,'Consuntivo '+fmtShort(s.data)+(s.nome?' · '+s.nome:''));
   return html;
 }
 
@@ -1304,8 +1364,8 @@ function renderNote(){
       <button onclick="document.getElementById('fileInput').click()" class="btn btn-ghost" style="width:100%;margin-bottom:14px">+ Carica un file</button>`;
     html+= S.file.length? S.file.map(f=>`<div class="card" style="padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:11px">
         <div class="avatar" style="border-radius:9px;font-size:10px">${esc(fileExt(f.nome))}</div>
-        <div style="flex:1;min-width:0"><a href="${esc(f.url)}" target="_blank" rel="noopener" style="font-size:14px;font-weight:500;color:var(--text);text-decoration:none">${esc(f.nome)}</a><div class="dim" style="font-size:12px">${fmtSize(f.size)}</div></div>
-        <a href="${esc(f.url)}" target="_blank" rel="noopener" class="btn btn-sm btn-ghost">Apri</a>
+        <div style="flex:1;min-width:0"><a href="javascript:void 0" onclick="apriFileId(${f.id});return false" style="font-size:14px;font-weight:500;color:var(--text);text-decoration:none">${esc(f.nome)}</a><div class="dim" style="font-size:12px">${fmtSize(f.size)}</div></div>
+        <button onclick="apriFileId(${f.id})" class="btn btn-sm btn-ghost">Apri</button>
         <button onclick="delFile(${f.id})" class="btn btn-sm btn-ghost" style="color:#f87171">×</button>
       </div>`).join('') : `<div class="card" style="padding:20px;color:var(--text2)">Nessun file. Carica documenti, PDF o immagini da condividere col team.</div>`;
   }
@@ -1349,8 +1409,8 @@ function fileOrganizer(){
       <button class="btn btn-sm btn-ghost" onclick="openMove('cartella',${f.id})">Sposta</button><button class="btn btn-sm btn-ghost" style="color:#f87171" onclick="delFolder(${f.id})">×</button></div>`;});
   files.forEach(f=>{h+=`<div class="card" style="padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:11px">
       <div class="avatar" style="border-radius:9px;font-size:10px">${esc(fileExt(f.nome))}</div>
-      <div style="flex:1;min-width:0"><a href="${esc(f.url)}" target="_blank" rel="noopener" style="font-size:14px;font-weight:500;color:var(--text);text-decoration:none">${esc(f.nome)}</a><div class="dim" style="font-size:12px">${fmtSize(f.size)}</div></div>
-      <a href="${esc(f.url)}" target="_blank" rel="noopener" class="btn btn-sm btn-ghost">Apri</a>
+      <div style="flex:1;min-width:0"><a href="javascript:void 0" onclick="apriFileId(${f.id});return false" style="font-size:14px;font-weight:500;color:var(--text);text-decoration:none">${esc(f.nome)}</a><div class="dim" style="font-size:12px">${fmtSize(f.size)}</div></div>
+      <button onclick="apriFileId(${f.id})" class="btn btn-sm btn-ghost">Apri</button>
       <button class="btn btn-sm btn-ghost" onclick="openMove('file',${f.id})">Sposta</button>
       <button class="btn btn-sm btn-ghost" style="color:#f87171" onclick="delFile(${f.id})">×</button></div>`;});
   if(!subs.length&&!files.length)h+=`<div class="card" style="padding:20px;color:var(--text2)">Cartella vuota. Crea una sottocartella o carica file/cartelle.</div>`;
