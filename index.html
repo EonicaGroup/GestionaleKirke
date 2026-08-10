@@ -301,13 +301,14 @@ function openApp(){
 }
 
 // ================= STATE =================
-let S={tipologie:[],ruoli:[],tipRuoli:[],personale:[],serate:[],assegn:[],contatti:[],config:{},articoli:[],movimenti:[],prodotti:[],ricette:[],vendite:[],costiSerata:[],incassiExtra:[],todo:[],note:[],file:[],cartella:[],allestimento:[],allestLink:[],partnership:[],todoSub:[],allestPos:[]};
+let S={tipologie:[],ruoli:[],tipRuoli:[],personale:[],serate:[],assegn:[],contatti:[],config:{},articoli:[],movimenti:[],prodotti:[],ricette:[],vendite:[],costiSerata:[],incassiExtra:[],todo:[],note:[],file:[],cartella:[],allestimento:[],allestLink:[],partnership:[],todoSub:[],allestPos:[],cassaMov:[]};
 let TAB='home';
 async function boot(){
   document.getElementById('view').innerHTML='<div class="skel" style="height:118px;margin-bottom:14px"></div><div class="skel" style="height:86px;margin-bottom:14px"></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px"><div class="skel" style="height:72px"></div><div class="skel" style="height:72px"></div></div><div class="skel" style="height:64px;margin-bottom:10px"></div><div class="skel" style="height:64px"></div>';
   if(!initDb()){let n=0;await new Promise(r=>{const t=setInterval(()=>{if(initDb()||++n>24){clearInterval(t);r();}},250);});}
   if(!db){document.getElementById('view').innerHTML='<div class="card" style="padding:18px;color:#f87171">Connessione assente: impossibile caricare i dati. Riapri con internet attivo.</div>';return;}
   await reloadAll(); subscribe(); render();
+  try{await gPushBoot();}catch(e){}
   if(PSEC){try{await prenCarica();pStartPoll();if(TAB==='prenota')render();}catch(e){}}
 }
 async function reloadMag(){
@@ -332,11 +333,11 @@ async function reloadMag(){
   S.serate=(ser&&ser.data)||[]; S.tipologie=(tip&&tip.data)||[];
   // in sola lettura il barman non vede né staff né economia: non li carico proprio
   S.assegn=[]; S.personale=[]; S.costiSerata=[]; S.incassiExtra=[]; S.partnership=[]; S.tipRuoli=[]; S.ruoli=[];
-  S.todo=[]; S.note=[]; S.file=[]; S.cartella=[]; S.allestimento=[]; S.allestLink=[]; S.allestPos=[]; S.todoSub=[];
+  S.todo=[]; S.note=[]; S.file=[]; S.cartella=[]; S.allestimento=[]; S.allestLink=[]; S.allestPos=[]; S.todoSub=[]; S.cassaMov=[];
 }
 async function reloadAll(){
   if(MAGONLY) return reloadMag();
-  const [tip,ruo,tr,per,ser,ass,con,cfgr,arts,movs,pro,ric,ven,cos,inc,tdo,nte,fls,crt,alle,alk,prt,tds,apz]=await Promise.all([
+  const [tip,ruo,tr,per,ser,ass,con,cfgr,arts,movs,pro,ric,ven,cos,inc,tdo,nte,fls,crt,alle,alk,prt,tds,apz,csm]=await Promise.all([
     db.from('tipologie').select('*').order('ordine'),
     db.from('ruoli').select('*').order('id'),
     db.from('tipologia_ruoli').select('*'),
@@ -361,6 +362,7 @@ async function reloadAll(){
     db.from('partnership').select('*').order('created_at'),
     db.from('todo_sub').select('*').order('created_at'),
     db.from('allestimento_pos').select('*').order('created_at'),
+    db.from('cassa_mov').select('*').order('data',{ascending:false}),
   ]);
   S.tipologie=tip.data||[];S.ruoli=ruo.data||[];S.tipRuoli=tr.data||[];
   S.personale=per.data||[];S.serate=ser.data||[];S.assegn=ass.data||[];S.contatti=con.data||[];
@@ -370,12 +372,13 @@ async function reloadAll(){
   S.costiSerata=(cos&&cos.data)||[]; S.incassiExtra=(inc&&inc.data)||[];
   S.todo=(tdo&&tdo.data)||[]; S.note=(nte&&nte.data)||[]; S.file=(fls&&fls.data)||[]; S.cartella=(crt&&crt.data)||[]; S.allestimento=(alle&&alle.data)||[]; S.allestLink=(alk&&alk.data)||[];
   S.partnership=(prt&&prt.data)||[]; S.todoSub=(tds&&tds.data)||[]; S.allestPos=(apz&&apz.data)||[];
+  S.cassaMov=(csm&&csm.data)||[]; S.cassaMovErr=!!(csm&&csm.error);
   const cat=await db.from('mag_categorie').select('*').order('ordine');
   S.mag_categorie=(cat&&cat.data)||[];
 }
 function subscribe(){
   if(MAGONLY){['articoli','movimenti','prodotti','ricette','vendite'].forEach(t=>db.channel('rt_'+t).on('postgres_changes',{event:'*',schema:'public',table:t},async()=>{await reloadAll();render();const s=document.getElementById('synced');if(s){s.textContent='● aggiornato';setTimeout(()=>s.textContent='● live',1400);}}).subscribe());return;}
-  ['tipologie','ruoli','tipologia_ruoli','personale','serate','serata_personale','contatti','config','articoli','movimenti','prodotti','ricette','vendite','costi_serata','incassi_extra','todo','note','file','cartella','allestimento','allestimento_link','partnership','todo_sub','allestimento_pos'].forEach(t=>{
+  ['tipologie','ruoli','tipologia_ruoli','personale','serate','serata_personale','contatti','config','articoli','movimenti','prodotti','ricette','vendite','costi_serata','incassi_extra','todo','note','file','cartella','allestimento','allestimento_link','partnership','todo_sub','allestimento_pos','cassa_mov'].forEach(t=>{
     db.channel('rt_'+t).on('postgres_changes',{event:'*',schema:'public',table:t},async()=>{
       await reloadAll(); render();
       const s=document.getElementById('synced'); s.textContent='● aggiornato'; setTimeout(()=>s.textContent='● live',1400);
@@ -434,7 +437,7 @@ document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>{
   if(TAB==='prenota'&&PSEC&&!P.serate.length){prenCarica().then(render);return;}
   render();
 }));
-function fabAction(){ if(TAB==='serate'){ if(serateMode==='todo')openTodo(); else if(serateMode==='appunti')openNota(); else if(serateMode==='file')document.getElementById('fileInput').click(); else if(serateMode==='sponsor')openPartnership(); else openSerata(); } else if(TAB==='personale')openPers(); else if(TAB==='contatti')openCont(); else if(TAB==='magazzino'){ if(magazzinoMode==='listino')openProdotto(); else if(magazzinoMode==='allestimento')openAllest(); else openArticolo(); } }
+function fabAction(){ if(TAB==='serate'){ if(serateMode==='todo')openTodo(); else if(serateMode==='appunti')openNota(); else if(serateMode==='file')document.getElementById('fileInput').click(); else if(serateMode==='cassa')openCassaMov(null,'uscita');else if(serateMode==='sponsor')openPartnership(); else openSerata(); } else if(TAB==='personale')openPers(); else if(TAB==='contatti')openCont(); else if(TAB==='magazzino'){ if(magazzinoMode==='listino')openProdotto(); else if(magazzinoMode==='allestimento')openAllest(); else openArticolo(); } }
 let _lastTab=null;
 function render(){
   if(MAGONLY&&TAB!=='calend')TAB='magazzino';
@@ -950,6 +953,7 @@ function renderSerate(){
       <span class="chip ${serateMode==='copertura'?'on':''}" style="cursor:pointer" onclick="serateMode='copertura';renderSerate()">Copertura</span>
       <span class="chip ${serateMode==='elenco'?'on':''}" style="cursor:pointer" onclick="serateMode='elenco';renderSerate()">Serate</span>
       <span class="chip ${serateMode==='risultati'?'on':''}" style="cursor:pointer" onclick="serateMode='risultati';renderSerate()">📊 Risultati${serateChiudibili().length?' · '+serateChiudibili().length:''}</span>
+      <span class="chip ${serateMode==='cassa'?'on':''}" style="cursor:pointer" onclick="serateMode='cassa';renderSerate()">💰 Cassa${cassaDaAssegnare().n?' · '+cassaDaAssegnare().n:''}</span>
       <span class="chip ${serateMode==='file'?'on':''}" style="cursor:pointer" onclick="serateMode='file';renderSerate()">Documenti${S.file.length?' · '+S.file.length:''}</span>
     </div>`;
   if(serateMode==='copertura'){
@@ -989,6 +993,8 @@ function renderSerate(){
     html+=renderTodo();
   } else if(serateMode==='risultati'){
     html+=renderRisultati();
+  } else if(serateMode==='cassa'){
+    html+=renderCassa();
   } else if(serateMode==='sponsor'){
     html+=renderSponsor();
   } else if(serateMode==='appunti'){
@@ -2464,7 +2470,7 @@ function quickMov(aid,d){
   // lo scarico va sempre attribuito: se non so a quale serata, lo chiedo adesso
   if(d<0&&magSerata===null){return magChiediSerata(()=>quickMov(aid,d));}
   const q=MOVQ[aid]||(MOVQ[aid]={n:0,timer:null});
-  q.n+=d;
+  q.n+=d*pzCassa(a);   // un tap = una cassa intera dove la cassa esiste
   if(navigator.vibrate){try{navigator.vibrate(12);}catch(e){}}
   clearTimeout(q.timer);
   if(q.n===0){ delete MOVQ[aid]; pillAgg(aid); undoBarChiudi(); return; }
@@ -2474,12 +2480,13 @@ function quickMov(aid,d){
 function pillAgg(aid){
   const a=S.articoli.find(x=>x.id===aid); if(!a)return;
   const el=document.getElementById('gp_'+aid); if(!el)return;
-  const q=MOVQ[aid], n=q?q.n:0, g=giacenza(aid)+n;
-  el.textContent=numIt(g)+' '+unBreve(a);
+  const q=MOVQ[aid], n=q?q.n:0, g=giacenza(aid)+n, nc=pzCassa(a);
+  el.textContent=nc>1?fmtCasse(g,a):(numIt(g)+' '+unBreve(a));
   el.style.background=n?'var(--accent)':'';
   el.style.color=n?'#12100d':'';
   const b=document.getElementById('gd_'+aid);
-  if(b){b.textContent=n?((n>0?'+':'')+n):''; b.style.display=n?'':'none';}
+  const dlt=nc>1?(n/nc):n;
+  if(b){b.textContent=n?((dlt>0?'+':'')+numIt(dlt)+(nc>1?(Math.abs(dlt)===1?' cassa':' casse'):'')):''; b.style.display=n?'':'none';}
 }
 function undoBarMostra(aid){
   const a=S.articoli.find(x=>x.id===aid)||{}, q=MOVQ[aid];
@@ -2487,7 +2494,8 @@ function undoBarMostra(aid){
   if(!bar){bar=document.createElement('div');bar.id='undobar';
     bar.style.cssText='position:fixed;left:12px;right:12px;bottom:86px;z-index:9000;background:#1c1a17;border:1px solid var(--accent-line);border-radius:12px;padding:11px 14px;display:flex;align-items:center;gap:12px;box-shadow:0 10px 30px rgba(0,0,0,.45);font-size:13px';
     document.body.appendChild(bar);}
-  bar.innerHTML=`<div style="flex:1;min-width:0"><b>${esc(a.nome||'')}</b> <span style="color:var(--accent)">${q.n>0?'+':''}${q.n}</span> ${esc(a.unita||'')}</div>
+  const _nc=pzCassa(a), _d=_nc>1?(q.n/_nc):q.n;
+  bar.innerHTML=`<div style="flex:1;min-width:0"><b>${esc(a.nome||'')}</b> <span style="color:var(--accent)">${_d>0?'+':''}${numIt(_d)}</span> ${_nc>1?(Math.abs(_d)===1?'cassa':'casse')+' <span style="opacity:.6">('+numIt(Math.abs(q.n))+' pz)</span>':esc(a.unita||'')}</div>
     <button class="btn ghost sm" onclick="annullaMov(${aid})">Annulla</button>`;
   clearTimeout(undoBarMostra._t);
   undoBarMostra._t=setTimeout(undoBarChiudi,2600);
@@ -2513,21 +2521,27 @@ async function flushMov(aid){
 /* ============ CARICO / SCARICO DETTAGLIATO (quantità e costo su misura) ============ */
 function openMov(aid,tipo){
   const a=S.articoli.find(x=>x.id===aid);if(!a)return;
-  const g=giacenza(aid),cu=costoUnit(a),u=esc(a.unita||'pz');
+  const g=giacenza(aid),cu=costoUnit(a),u=esc(a.unita||'pz'),nC=pzCassa(a);
+  MVCASSE=nC>1;
+  const quick=nC>1?[1,2,3,4,5,10]:[1,2,3,6,12,24];
   document.getElementById('modalbody').innerHTML=`
     <div class="h2 serif" style="margin-bottom:4px">${tipo==='carico'?'Carico':'Scarico'} · ${esc(a.nome)}</div>
-    <div class="dim" style="font-size:12px;margin-bottom:16px">In magazzino ora: <b>${g}</b> ${u}</div>
+    <div class="dim" style="font-size:12px;margin-bottom:16px">In magazzino ora: <b>${fmtCasse(g,a)}</b>${nC>1?` <span style="opacity:.7">(${numIt(g)} ${u})</span>`:''}</div>
+    ${nC>1?`<div style="display:flex;gap:6px;margin-bottom:10px">
+      <span class="chip on" id="mv_uc" style="cursor:pointer;flex:1;text-align:center" onclick="mvUnita(true)">📦 Casse (×${nC})</span>
+      <span class="chip" id="mv_up" style="cursor:pointer;flex:1;text-align:center" onclick="mvUnita(false)">🍾 Pezzi sfusi</span></div>`:''}
     <label class="label">Quantità</label>
     <div style="display:flex;gap:8px;align-items:center">
       <button class="btn ghost" onclick="movStep(-1)" style="width:52px;font-size:20px">−</button>
-      <input class="input" id="mv_q" type="number" step="0.01" inputmode="decimal" value="1" style="text-align:center;font-size:22px">
+      <input class="input" id="mv_q" type="number" step="${nC>1?'1':'0.01'}" inputmode="decimal" value="1" style="text-align:center;font-size:22px" oninput="mvEcho(${aid})">
       <button class="btn ghost" onclick="movStep(1)" style="width:52px;font-size:20px">+</button>
     </div>
+    <div id="mv_echo" class="dim" style="font-size:12px;margin-top:6px;text-align:center">${nC>1?'= '+nC+' pz':''}</div>
     <div style="display:flex;gap:6px;margin-top:8px">
-      ${[1,2,3,6,12,24].map(n=>`<button class="btn ghost sm" style="flex:1" onclick="document.getElementById('mv_q').value=${n}">${n}</button>`).join('')}
+      ${quick.map(n=>`<button class="btn ghost sm" style="flex:1" onclick="document.getElementById('mv_q').value=${n};mvEcho(${aid})">${n}</button>`).join('')}
     </div>
-    ${tipo==='carico'?`<label class="label" style="margin-top:14px">Costo unitario d'acquisto (€)</label>
-      <input class="input" id="mv_c" type="number" step="0.01" inputmode="decimal" value="${cu>0?Math.round(cu*100)/100:''}" placeholder="opzionale">
+    ${tipo==='carico'?`<label class="label" style="margin-top:14px">Costo d'acquisto ${nC>1?'di 1 cassa':'unitario'} (€)</label>
+      <input class="input" id="mv_c" type="number" step="0.01" inputmode="decimal" value="${cu>0?Math.round(cu*(nC>1?nC:1)*100)/100:''}" placeholder="opzionale">
       <div class="dim" style="font-size:11px;margin-top:5px">Lascia il valore proposto se il prezzo non è cambiato.</div>`:
       `<label class="label" style="margin-top:14px">Perché lo scarichi</label>
       <select class="input" id="mv_n">
@@ -2541,12 +2555,26 @@ function openMov(aid,tipo){
     <button class="btn" style="width:100%;margin-top:18px" onclick="saveMov(${aid},'${tipo}')">Conferma ${tipo}</button>`;
   showModal();
 }
-function movStep(d){const e=document.getElementById('mv_q');if(!e)return;e.value=Math.max(0,(+e.value||0)+d);}
+let MVCASSE=false;
+function mvUnita(c){MVCASSE=c;
+  const a=document.getElementById('mv_uc'),b=document.getElementById('mv_up');
+  if(a)a.classList.toggle('on',c); if(b)b.classList.toggle('on',!c);
+  const q=document.getElementById('mv_q'); if(q)q.step=c?'1':'0.01';
+  mvEcho(MVAID);}
+let MVAID=null;
+function mvEcho(aid){ if(aid)MVAID=aid;
+  const e=document.getElementById('mv_echo'); if(!e)return;
+  const a=S.articoli.find(x=>x.id===MVAID); if(!a)return;
+  const n=pzCassa(a), q=+((document.getElementById('mv_q')||{}).value||0);
+  e.textContent = (n>1&&MVCASSE) ? ('= '+numIt(q*n)+' pz') : '';}
+function movStep(d){const e=document.getElementById('mv_q');if(!e)return;e.value=Math.max(0,(+e.value||0)+d);mvEcho(MVAID);}
 async function saveMov(aid,tipo){
-  const q=+document.getElementById('mv_q').value||0;
-  if(q<=0){toast('Quantità non valida');return;}
+  const qIn=+document.getElementById('mv_q').value||0;
+  if(qIn<=0){toast('Quantità non valida');return;}
+  const _a=S.articoli.find(x=>x.id===aid)||{}, _n=pzCassa(_a), _casse=(_n>1&&MVCASSE);
+  const q=_casse?qIn*_n:qIn;   // in DB si scrive SEMPRE il pezzo
   const row={articolo_id:aid,tipo:tipo,quantita:q,data:today()};
-  if(tipo==='carico'){const c=document.getElementById('mv_c');if(c&&c.value!=='')row.costo_unitario=+c.value;}
+  if(tipo==='carico'){const c=document.getElementById('mv_c');if(c&&c.value!=='')row.costo_unitario=_casse?(+c.value/_n):+c.value;}
   else {
     const n=document.getElementById('mv_n'); const mot=(n&&n.value)||'Rettifica';
     row.note=mot;
@@ -2556,7 +2584,7 @@ async function saveMov(aid,tipo){
   const r=await db.from('movimenti').insert(row);
   if(r.error){toast('Errore: '+r.error.message);return;}
   hideModal();await reloadAll();render();
-  toast((tipo==='carico'?'+':'−')+q+' '+((S.articoli.find(x=>x.id===aid)||{}).unita||'pz'));
+  toast((tipo==='carico'?'+':'−')+(_casse?(qIn+(qIn===1?' cassa':' casse')+' ('+numIt(q)+' pz)'):(numIt(q)+' '+(_a.unita||'pz'))));
 }
 
 /* ============ CONTA DI FINE SERATA ============ */
@@ -2584,16 +2612,20 @@ async function contaCarica(id){
   magazzinoMode='conta';render();
 }
 // val = quanto ho consumato (modo 'consumo') oppure quanto è rimasto (modo 'rimasto')
+let contaCasse=true;   // di default si conta in casse: è così che si movimenta il magazzino
+function contaArt(aid){return S.articoli.find(x=>x.id===aid)||{};}
+function contaPz(aid){return contaCasse?pzCassa(contaArt(aid)):1;}
 async function contaSet(aid,val){
   if(!CONTA)return;
   const row=CONTA.righe.find(x=>x.articolo_id===aid); if(!row)return;
+  const K=contaPz(aid);                       // quanto vale 1 unità digitata, in pezzi
   let contato;
   if(val===''||val==null){ contato=null; }
   else if(contaModo==='consumo'){
-    const c=+val||0;
+    const c=(+val||0)*K;
     if(c===0){ contato=null; }                       // 0 consumato = non toccato
     else contato=Math.round((Number(row.atteso||0)-c)*1000)/1000;
-  } else contato=+val;
+  } else contato=(+val||0)*K;
   const r=await db.rpc('mag_conta_set',{p_conta:CONTA.id,p_articolo:aid,p_contato:contato});
   if(r.error){toast('Errore: '+r.error.message);return;}
   row.contato=contato; row.diff=r.data;
@@ -2606,9 +2638,10 @@ function contaAggiornaRiga(aid){
   const card=document.getElementById('cr_'+aid);
   if(row.contato==null){el.textContent='';el.style.color='';if(card)card.style.opacity='.92';return;}
   const d=Number(row.diff||0), resta=Number(row.contato||0);
+  const _a=contaArt(aid);
   el.innerHTML=contaModo==='consumo'
-    ? ('resta <b>'+numIt(resta)+'</b> '+esc(unBreve({unita:row.unita})))
-    : (d===0?'in pari':(d>0?'+':'')+Math.round(d*100)/100);
+    ? ('resta <b>'+esc(fmtCasse(resta,_a))+'</b>')
+    : (d===0?'in pari':(d>0?'+':'−')+esc(fmtCasse(Math.abs(d),_a)));
   el.style.color=contaModo==='consumo'?(resta<0?'#f87171':'#4bb573'):(d===0?'#4bb573':(d<0?'#f87171':'var(--accent)'));
   if(card)card.style.opacity='1';
 }
@@ -2672,6 +2705,10 @@ function renderConta(){
     <span class="chip ${CONS?'on':''}" style="cursor:pointer;flex:1;text-align:center" onclick="contaModo='consumo';render()">Ho consumato</span>
     <span class="chip ${CONS?'':'on'}" style="cursor:pointer;flex:1;text-align:center" onclick="contaModo='rimasto';render()">Ho contato quel che resta</span>
   </div>
+  <div style="display:flex;gap:8px;margin-bottom:12px">
+    <span class="chip ${contaCasse?'on':''}" style="cursor:pointer;flex:1;text-align:center" onclick="contaCasse=true;render()">📦 Conto in casse</span>
+    <span class="chip ${contaCasse?'':'on'}" style="cursor:pointer;flex:1;text-align:center" onclick="contaCasse=false;render()">🍾 Conto a pezzo</span>
+  </div>
   <div class="grid2" style="margin-bottom:12px">
     <div class="card" style="padding:14px"><div class="serif" style="font-size:20px"><span id="cnt_fatte">${tocc}</span> <span class="dim" style="font-size:13px">su ${R.length}</span></div><div class="label" style="margin-top:2px">articoli toccati</div></div>
     <div class="card" style="padding:14px"><div class="serif" style="font-size:20px" id="cnt_val">${eur(Math.abs(val))}</div><div class="label" style="margin-top:2px">${CONS?'valore consumato':'scostamento'}</div></div>
@@ -2693,18 +2730,19 @@ function renderConta(){
     if(k!==lastCat&&contaFiltro==='tutte'){lastCat=k;
       h+=`<div class="label" style="margin:16px 0 9px;display:flex;align-items:center;gap:8px"><span style="width:10px;height:10px;border-radius:3px;background:${esc(r.colore)}"></span>${esc(r.categoria)}</div>`;}
     const done=r.contato!=null;
-    const consumo=done?Math.round((Number(r.atteso||0)-Number(r.contato||0))*100)/100:'';
+    const _art=contaArt(r.articolo_id), _K=contaPz(r.articolo_id);
+    const consumo=done?Math.round(((Number(r.atteso||0)-Number(r.contato||0))/_K)*100)/100:'';
     const dett=done
-      ? (CONS?('resta <b>'+numIt(r.contato)+'</b> '+esc(unBreve({unita:r.unita})))
-             :(Number(r.diff)===0?'in pari':(Number(r.diff)>0?'+':'')+Math.round(Number(r.diff)*100)/100))
+      ? (CONS?('resta <b>'+esc(fmtCasse(Number(r.contato||0),_art))+'</b>')
+             :(Number(r.diff)===0?'in pari':(Number(r.diff)>0?'+':'−')+esc(fmtCasse(Math.abs(Number(r.diff)),_art))))
       : '';
     h+=`<div class="card" id="cr_${r.articolo_id}" style="padding:11px 13px;margin-bottom:7px;display:flex;align-items:center;gap:10px;border-left:3px solid ${esc(r.colore)};opacity:${done?1:.92}">
       <div style="flex:1;min-width:0">
         <div style="font-size:14px;font-weight:500">${esc(r.nome)}</div>
-        <div class="dim" style="font-size:11px;margin-top:2px">in magazzino <b>${numIt(r.atteso)}</b> ${esc(unBreve({unita:r.unita}))} · <span id="cd_${r.articolo_id}">${dett}</span></div>
+        <div class="dim" style="font-size:11px;margin-top:2px">in magazzino <b>${esc(fmtCasse(Number(r.atteso||0),_art))}</b>${_K>1?' <span style="opacity:.65">· digita '+(CONS?'le casse consumate':'le casse rimaste')+'</span>':''} · <span id="cd_${r.articolo_id}">${dett}</span></div>
       </div>
       <input class="input" type="number" step="0.01" inputmode="decimal" style="width:88px;text-align:center;font-size:18px"
-             value="${done?(CONS?consumo:r.contato):''}" placeholder="${CONS?'0':'—'}"
+             value="${done?(CONS?consumo:(Math.round((Number(r.contato||0)/_K)*100)/100)):''}" placeholder="${CONS?'0':'—'}"
              onchange="contaSet(${r.articolo_id},this.value)">
     </div>`;
   });
@@ -2730,6 +2768,14 @@ function baseU(a){let b=((a&&a.unita_base)||'').trim().toLowerCase();if(b==='ml'
 function contenutoOf(a){const c=Number((a&&a.contenuto)||0);if(c>0)return c;return capCl(a);}
 // quante bottiglie/lattine ci sono dentro UNA unità di conteggio (1 se non è una confezione)
 function pezziUn(a){const n=Number((a&&a.porzioni_unita)||0);return n>0?n:1;}
+// pezzi contenuti in UNA cassa d'acquisto (0/1 = si movimenta a pezzo)
+function pzCassa(a){const n=Number((a&&a.pezzi_conf)||0);return n>1?Math.round(n):1;}
+// giacenza raccontata come la vedi in magazzino: "3 casse + 5 pz"
+function fmtCasse(g,a){const n=pzCassa(a);g=Number(g||0);
+  if(n<=1)return numIt(g)+' '+esc(a.unita||'pz');
+  if(g<0)return '−'+fmtCasse(-g,a);
+  const c=Math.floor(g/n), r=Math.round((g-c*n)*100)/100;
+  return (c?c+(Math.abs(c)===1?' cassa':' casse'):'')+((c&&r)?' + ':'')+((r||!c)?numIt(r)+' pz':'');}
 // unità di conteggio che contengono più pezzi
 function isMulti(a){return ['cassa','cartone','conf','pacco'].includes(((a&&a.unita)||'').toLowerCase());}
 // contenuto totale di UNA unità di conteggio (una cassa da 24×33cl = 792 cl)
@@ -2907,7 +2953,7 @@ function magRow(a){
   const cont=contenutoOf(a), un=unLabel(a);
   const meta=[];
   if(cont>0&&bu)meta.push(pezziUn(a)>1?(pezziUn(a)+' × '+fmtBase(cont,bu)):fmtBase(cont,bu));
-  if(cu>0)meta.push(eur(cu)+' a '+un);
+  if(cu>0)meta.push(pzCassa(a)>1?(eur(cu*pzCassa(a))+' a cassa da '+pzCassa(a)):(eur(cu)+' a '+un));
   // costo di una porzione: solo dove ha senso (distillati), impostato sulla categoria
   const pz=porzioneCl(a), cbase=costoBase(a);
   const porz=(pz>0&&cbase>0&&bu==='cl')?{cl:pz,costo:cbase*pz}:null;
@@ -2928,12 +2974,12 @@ function magRow(a){
       ${meta.length?`<div class="dim" style="font-size:11px;margin-top:2px">${meta.join(' · ')}</div>`:''}
     </div>
     <span id="gd_${a.id}" style="font-size:12px;font-weight:700;color:var(--accent);display:none;min-width:22px;text-align:right"></span>
-    <span class="pill" id="gp_${a.id}" style="background:${stbg};color:${st};min-width:52px;text-align:center;font-variant-numeric:tabular-nums">${numIt(g)} ${esc(unBreve(a))}</span>
+    <span class="pill" id="gp_${a.id}" style="background:${stbg};color:${st};min-width:52px;text-align:center;font-variant-numeric:tabular-nums">${pzCassa(a)>1?esc(fmtCasse(g,a)):(numIt(g)+' '+esc(unBreve(a)))}</span>
     ${magOrdina?(()=>{const fr=artFratelli(a),i=fr.findIndex(x=>x.id===a.id);return `
       <button class="btn ghost" ${i===0?'disabled':''} onclick="event.stopPropagation();artMove(${a.id},-1)" style="width:44px;height:44px;padding:0;font-size:18px;flex:none;border-radius:10px">↑</button>
       <button class="btn ghost" ${i===fr.length-1?'disabled':''} onclick="event.stopPropagation();artMove(${a.id},1)" style="width:44px;height:44px;padding:0;font-size:18px;flex:none;border-radius:10px">↓</button>`;})()
-    :`<button class="btn ghost" title="Togli 1" onclick="event.stopPropagation();quickMov(${a.id},-1)" style="width:44px;height:44px;padding:0;font-size:22px;line-height:1;flex:none;border-radius:10px">−</button>
-      <button class="btn ghost" title="Aggiungi 1" onclick="event.stopPropagation();quickMov(${a.id},1)" style="width:44px;height:44px;padding:0;font-size:22px;line-height:1;flex:none;border-radius:10px">+</button>`}
+    :`<button class="btn ghost" title="${pzCassa(a)>1?'Togli 1 cassa':'Togli 1'}" onclick="event.stopPropagation();quickMov(${a.id},-1)" style="width:44px;height:44px;padding:0;font-size:22px;line-height:1;flex:none;border-radius:10px">−</button>
+      <button class="btn ghost" title="${pzCassa(a)>1?'Aggiungi 1 cassa':'Aggiungi 1'}" onclick="event.stopPropagation();quickMov(${a.id},1)" style="width:44px;height:44px;padding:0;font-size:22px;line-height:1;flex:none;border-radius:10px">+</button>`}
   </div>`;
 }
 function magSearch(q){q=(q||'').trim().toLowerCase();document.querySelectorAll('#view .magrp').forEach(rp=>{let vis=0;rp.querySelectorAll('.magrow').forEach(r=>{const m=!q||(r.dataset.s||'').includes(q);r.style.display=m?'':'none';if(m)vis++;});const lbl=rp.querySelector('.maglabel');if(lbl)lbl.style.display=vis?'':'none';rp.style.display=vis?'':'none';});}
@@ -3131,7 +3177,7 @@ function openArticolo(id){
   $('#modalbody').innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:center;margin:2px 0 16px"><div class="serif" style="font-size:19px">${id?'Articolo':'Nuovo articolo'}</div><button onclick="hideModal()" class="btn btn-sm btn-ghost">Chiudi</button></div>
     ${id?`<div class="card" style="padding:16px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">
-      <div><div class="serif" style="font-size:28px">${g} <span class="dim" style="font-size:14px">${esc(a.unita||'')}</span></div><div class="label" style="margin-top:2px">giacenza${(contenutoOf(a)>0&&baseU(a))?(' · '+fmtBase(contTot(a),baseU(a))):''}${costoBase(a)>0?(' · '+eurBase(costoBase(a))+'/'+baseU(a)):''}</div>${(function(){const val=g*costoUnit(a),bits=[];if(val>0)bits.push('valore '+eur(val));if(costoUnit(a)>0)bits.push('costo '+eur(costoUnit(a))+'/'+esc(a.unita||'u'));const cov=coperturaSerate(a);if(cov!=null)bits.push('copertura ≈'+(cov>=10?Math.round(cov):cov.toFixed(1))+' serate');return bits.length?('<div class="dim" style="font-size:11px;margin-top:4px">'+bits.join(' · ')+'</div>'):'';})()}</div>
+      <div><div class="serif" style="font-size:28px">${g} <span class="dim" style="font-size:14px">${esc(a.unita||'')}</span></div><div class="label" style="margin-top:2px">giacenza${pzCassa(a)>1?(' · '+fmtCasse(g,a)):''}${(contenutoOf(a)>0&&baseU(a))?(' · '+fmtBase(contTot(a),baseU(a))):''}${costoBase(a)>0?(' · '+eurBase(costoBase(a))+'/'+baseU(a)):''}</div>${(function(){const val=g*costoUnit(a),bits=[];if(val>0)bits.push('valore '+eur(val));if(costoUnit(a)>0)bits.push('costo '+eur(costoUnit(a))+'/'+esc(a.unita||'u'));const cov=coperturaSerate(a);if(cov!=null)bits.push('copertura ≈'+(cov>=10?Math.round(cov):cov.toFixed(1))+' serate');return bits.length?('<div class="dim" style="font-size:11px;margin-top:4px">'+bits.join(' · ')+'</div>'):'';})()}</div>
       <div style="display:flex;gap:8px"><button class="btn btn-accent btn-sm" onclick="movimento(${id},'carico')">+ Carico</button><button class="btn btn-ghost btn-sm" onclick="movimento(${id},'scarico')">− Scarico</button></div>
     </div>`:''}
     <div class="field"><input id="ar_nome" class="input" placeholder="Nome prodotto" value="${esc(a.nome)}"></div>
@@ -3153,6 +3199,8 @@ function openArticolo(id){
     </div>
     <div class="grid2 field">
       <div><div class="label" style="margin-bottom:6px">Soglia minima (${esc(a.unita||'pz')})</div><input id="ar_sog" type="number" class="input" value="${a.soglia_min||0}"></div>
+      <div><div class="label" style="margin-bottom:6px">Pezzi per cassa d'acquisto</div><input id="ar_pzc" type="number" inputmode="numeric" min="1" step="1" class="input" value="${pzCassa(a)>1?pzCassa(a):''}" placeholder="1 = si compra sfuso">
+        <div class="dim" style="font-size:11px;margin-top:5px">Carico e scarico ti chiederanno le <b>casse</b>, il magazzino resta contato a pezzo.</div></div>
       <div><div class="label" style="margin-bottom:6px">Misura base</div><select id="ar_base" class="input" onchange="arCost()">
         <option value="cl" ${baseU(a)==='cl'?'selected':''}>Liquido · cl / ml / L</option>
         <option value="g" ${baseU(a)==='g'?'selected':''}>Peso · g / kg</option>
@@ -3211,7 +3259,12 @@ async function saveArticolo(id){const o={nome:$('#ar_nome').value.trim(),categor
   if(_multi&&!(_pz>1))return alert('Hai scelto una confezione multipla: scrivi da quanti pezzi è.');
   o.porzioni_unita=_multi?_pz:null;
   o.capacita_cl=(_base==='cl'&&_cont>0)?_cont:null;
-  if(!o.nome)return alert('Nome obbligatorio');if(id)await db.from('articoli').update(o).eq('id',id);else await db.from('articoli').insert(o);await reloadAll();hideModal();render();}
+  o.pezzi_conf=Math.max(1,Math.round(+(($('#ar_pzc')&&$('#ar_pzc').value)||1)||1));
+  if(!o.nome)return alert('Nome obbligatorio');
+  let rr=id?await db.from('articoli').update(o).eq('id',id):await db.from('articoli').insert(o);
+  if(rr.error&&/pezzi_conf/.test(rr.error.message||'')){delete o.pezzi_conf;rr=id?await db.from('articoli').update(o).eq('id',id):await db.from('articoli').insert(o);}
+  if(rr.error)return alert(rr.error.message);
+  await reloadAll();hideModal();render();}
 async function delArticolo(id){if(confirm('Eliminare l articolo e tutti i suoi movimenti?')){await db.from('articoli').delete().eq('id',id);await reloadAll();hideModal();render();}}
 // i prompt di sistema sono stati sostituiti dal pannello rapido openMov()
 async function movimento(id,tipo){ openMov(id,tipo); }
@@ -4063,6 +4116,314 @@ function trendChart(list){
   });
   return sv+'</svg>';
 }
+// ================= CASSA · CONTANTI / POS =================
+/* Due "conti correnti": 💵 contanti e 💳 POS/banca.
+   Entrate = incassi bar (già divisi per serata) + extra incassati + entrate libere.
+   Uscite  = costi serata con metodo di pagamento + uscite libere.
+   Giroconto = versamento contanti→banca o prelievo banca→contanti (1 riga, 2 effetti). */
+const CASSA_CAT=['Fornitori','Personale','Artisti / DJ','Utenze','Manutenzione','Marketing','Rimborsi spese','SIAE / licenze','Allestimento','Altro'];
+let cassaFiltro='tutti';
+const CASSA_SQL=`-- KIRKE · cassa contanti/POS (additivo, sicuro da rieseguire)
+alter table costi_serata  add column if not exists metodo text;
+alter table incassi_extra add column if not exists metodo text;
+create table if not exists cassa_mov (
+  id bigint generated by default as identity primary key,
+  created_at timestamptz default now(),
+  data date not null default current_date,
+  conto text not null default 'contanti',
+  tipo text not null default 'uscita',
+  importo numeric not null default 0,
+  voce text,
+  categoria text,
+  serata_id bigint references serate(id) on delete set null,
+  note text
+);
+alter table cassa_mov enable row level security;
+drop policy if exists cassa_mov_all on cassa_mov;
+create policy cassa_mov_all on cassa_mov for all to anon using (true) with check (true);
+alter publication supabase_realtime add table cassa_mov;`;
+
+function nMetodo(x){const m=String((x&&x.metodo)||'').toLowerCase();
+  if(m==='contanti'||m==='cash')return 'contanti';
+  if(m==='pos'||m==='banca'||m==='bonifico'||m==='carta')return 'pos';
+  return null;}
+const contoLbl=c=>c==='pos'?'💳 POS / banca':'💵 Contanti';
+
+function cassaLedger(){
+  const rows=[];
+  S.serate.forEach(s=>{
+    const c=Number(s.incasso_contanti||0), p=Number(s.incasso_pos||0);
+    if(c>0)rows.push({data:s.data,conto:'contanti',segno:1,importo:c,voce:'Incasso bar',cat:fmtShort(s.data),src:'serata',id:s.id});
+    if(p>0)rows.push({data:s.data,conto:'pos',segno:1,importo:p,voce:'Incasso bar',cat:fmtShort(s.data),src:'serata',id:s.id});
+  });
+  // La quota dell'organizzatore e' una fetta dell'incasso che entra in cassa e poi esce:
+  // va scalata dalla liquidita', altrimenti il saldo racconta soldi che sono di altri.
+  S.serate.forEach(s=>{
+    if(s.stato!=='consuntivo')return;
+    const e=econ(s); if(!(e.quotaOrg>0))return;
+    rows.push({data:s.data,conto:nMetodo({metodo:s.metodo_quota_org})||'contanti',segno:-1,importo:e.quotaOrg,
+      voce:'Quota '+((e.org&&e.org.nome)||'organizzatore'),
+      cat:(e.orgBase||'quota organizzatore')+' · '+fmtShort(s.data),src:'quota',id:s.id,vc:'Organizzazioni',sw:'quota'});
+  });
+  S.costiSerata.forEach(x=>{const m=nMetodo(x);if(!m)return;const s=S.serate.find(y=>y.id===x.serata_id);
+    rows.push({data:(s&&s.data)||'',conto:m,segno:-1,importo:Number(x.importo||0),voce:x.voce||'Costo serata',cat:(x.categoria||'Costo serata')+(s?' · '+fmtShort(s.data):''),src:'costo',id:x.id,sw:'costo'});});
+  S.incassiExtra.forEach(x=>{if((x.stato||'incassato')!=='incassato')return;const m=nMetodo(x);if(!m)return;const s=S.serate.find(y=>y.id===x.serata_id);
+    rows.push({data:(s&&s.data)||'',conto:m,segno:1,importo:Number(x.importo||0),voce:x.voce||'Extra',cat:tipoLabel(x.tipo)+(s?' · '+fmtShort(s.data):''),src:'extra',id:x.id,sw:'extra'});});
+  (S.cassaMov||[]).forEach(x=>{
+    const imp=Number(x.importo||0), cn=x.conto==='pos'?'pos':'contanti';
+    if(x.tipo==='giroconto'){
+      const alt=cn==='contanti'?'pos':'contanti';
+      const et=x.voce||(cn==='contanti'?'Prelievo da banca':'Versamento in banca');
+      rows.push({data:x.data,conto:cn,segno:1,importo:imp,voce:et,cat:'Giroconto',src:'mov',id:x.id});
+      rows.push({data:x.data,conto:alt,segno:-1,importo:imp,voce:et,cat:'Giroconto',src:'mov',id:x.id});
+    } else {
+      rows.push({data:x.data,conto:cn,segno:x.tipo==='entrata'?1:-1,importo:imp,voce:x.voce||'—',cat:x.categoria||(x.tipo==='entrata'?'Entrata':'Uscita'),src:'mov',id:x.id,sw:'mov'});
+    }
+  });
+  rows.sort((a,b)=>(b.data||'').localeCompare(a.data||'')||(b.id||0)-(a.id||0));
+  return rows;
+}
+// A che voce appartiene un'uscita. L'ordine dei test conta: "Personale bar"
+// deve cadere in Personale prima che la parola "bar" lo porti altrove.
+const CASSA_VOCI=['Organizzazioni','Sicurezza','Personale','Merce','Altro'];
+function cassaVoce(r){
+  if(r.vc)return r.vc;                       // riga già etichettata alla fonte
+  const test=t=>{t=(t||'').toLowerCase();
+    if(/securit|sicurezz|buttaf|steward|vigilanz/.test(t))return 'Sicurezza';
+    if(/personal|accoglienz|hostess|staff|cameri|artist|\bdj\b|barman|barist|fotograf/.test(t))return 'Personale';
+    if(/merce|food|fornit|bevand|acquist|magazzin|bibit|ghiacc/.test(t))return 'Merce';
+    return null;};
+  return test(r.voce)||test(r.cat)||'Altro'; // il nome della voce batte la categoria
+}
+function cassaSaldi(){
+  const L=cassaLedger(), z=()=>({iniz:0,entrate:0,uscite:0,saldo:0,voci:{}});
+  const t={contanti:z(),pos:z()};
+  t.contanti.iniz=Number(cfg('saldo_iniz_contanti',0))||0;
+  t.pos.iniz=Number(cfg('saldo_iniz_pos',0))||0;
+  L.forEach(r=>{const b=t[r.conto];if(!b)return;
+    if(r.segno>0){b.entrate+=r.importo;}
+    else {b.uscite+=r.importo;const v=cassaVoce(r);b.voci[v]=(b.voci[v]||0)+r.importo;}});
+  ['contanti','pos'].forEach(k=>{t[k].saldo=t[k].iniz+t[k].entrate-t[k].uscite;});
+  t.totale=t.contanti.saldo+t.pos.saldo;
+  return t;
+}
+function valoreAcquisti(){
+  return S.movimenti.filter(m=>m.tipo==='carico').reduce((t,m)=>{
+    const a=S.articoli.find(x=>x.id===m.articolo_id);
+    const cu=(m.costo_unitario!=null&&m.costo_unitario!=='')?Number(m.costo_unitario):costoUnit(a);
+    return t+Number(m.quantita||0)*cu;},0);
+}
+function cassaDaAssegnare(){
+  const costi=S.costiSerata.filter(x=>!nMetodo(x)&&Number(x.importo||0)>0);
+  const extra=S.incassiExtra.filter(x=>(x.stato||'incassato')==='incassato'&&!nMetodo(x)&&Number(x.importo||0)>0);
+  return {costi,extra,n:costi.length+extra.length,
+    tot:costi.reduce((t,x)=>t+Number(x.importo||0),0)+extra.reduce((t,x)=>t+Number(x.importo||0),0)};
+}
+
+function renderCassa(){
+  const t=cassaSaldi(), da=cassaDaAssegnare(), L=cassaLedger();
+  let h='';
+  if(S.cassaMovErr){
+    h+=`<div class="warnbox" style="margin-bottom:12px">⚠️ Migration mancante: la tabella <b>cassa_mov</b> non esiste ancora. I saldi si calcolano lo stesso su incassi e costi, ma non puoi registrare movimenti liberi.
+      <div style="margin-top:8px"><button class="btn btn-sm btn-ghost" onclick="cassaCopySql()">📋 Copia SQL migration</button></div></div>`;
+  }
+  h+=`<div class="grid2" style="margin-bottom:10px">
+    <div class="card kpi"><div class="v" style="color:${t.contanti.saldo>=0?'var(--text)':'#f87171'}">${eur(t.contanti.saldo)}</div><div class="label" style="margin-top:2px">💵 contanti in cassa</div></div>
+    <div class="card kpi"><div class="v" style="color:${t.pos.saldo>=0?'var(--text)':'#f87171'}">${eur(t.pos.saldo)}</div><div class="label" style="margin-top:2px">💳 POS / banca</div></div>
+  </div>
+  <div class="card" style="padding:14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
+    <div><div class="label">Liquidità totale</div><div class="dim" style="font-size:12px;margin-top:3px">contanti + banca</div></div>
+    <div class="serif" style="font-size:23px;color:var(--accent)">${eur(t.totale)}</div>
+  </div>`;
+
+  {
+    const eS=econStagione(), acq=valoreAcquisti();
+    const naC=da.costi.reduce((x,y)=>x+Number(y.importo||0),0);   // uscite non ancora assegnate
+    const naE=da.extra.reduce((x,y)=>x+Number(y.importo||0),0);   // entrate non ancora assegnate
+    const resid=t.totale-naC+naE-eS.personale-eS.cogs-eS.margine;
+    h+=`<div class="card" style="padding:16px;margin-bottom:12px">
+      <div class="label" style="margin-bottom:4px">Riconciliazione cassa ↔ margine</div>
+      <div class="dim" style="font-size:12px;margin-bottom:10px">Perché la liquidità non coincide col margine di stagione.</div>
+      <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px"><span class="muted">Liquidità in cassa</span><b>${eur(t.totale)}</b></div>
+      ${naC>0?`<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px"><span style="color:var(--accent)">− Spese senza metodo di pagamento <span style="opacity:.7">· ${da.costi.length} da assegnare</span></span><span style="color:var(--accent)">${eur(naC)}</span></div>`:''}
+      ${naE>0?`<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px"><span style="color:var(--accent)">+ Entrate extra senza metodo <span style="opacity:.7">· ${da.extra.length} da assegnare</span></span><span style="color:var(--accent)">${eur(naE)}</span></div>`:''}
+      <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px"><span class="dim">− Personale in turno <span style="opacity:.7">· mai registrato come uscita</span></span><span>${eur(eS.personale)}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px"><span class="dim">− Costo merce consumata <span style="opacity:.7">· già pagata con gli acquisti</span></span><span>${eur(eS.cogs)}</span></div>
+      ${Math.abs(resid)>1?`<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px"><span style="color:#f87171">− Differenza non spiegata</span><span style="color:#f87171">${eur(resid)}</span></div>`:''}
+      <div style="display:flex;justify-content:space-between;padding:10px 0 0;margin-top:8px;border-top:1px solid var(--border);align-items:center"><span class="serif" style="font-size:16px">Margine di stagione</span><span class="serif" style="font-size:20px;color:${eS.margine>=0?'#4bb573':'#f87171'}">${eur(eS.margine)}</span></div>
+      ${acq>0?`<div class="dim" style="font-size:11px;margin-top:10px;padding-top:9px;border-top:1px solid var(--border)">Gli acquisti di magazzino (${eur(acq)} caricati finora) per scelta <b>non</b> transitano da questa cassa: la liquidità qui sopra non li ha scalati.</div>`:''}
+    </div>`;
+  }
+  h+=`<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+    <button class="btn btn-accent btn-sm" onclick="openCassaMov(null,'uscita')">− Uscita</button>
+    <button class="btn btn-ghost btn-sm" onclick="openCassaMov(null,'entrata')">+ Entrata</button>
+    <button class="btn btn-ghost btn-sm" onclick="openCassaMov(null,'giroconto')">⇄ Versamento / prelievo</button>
+  </div>`;
+
+  h+=`<div class="grid2" style="margin-bottom:12px">${['contanti','pos'].map(k=>`
+    <div class="card" style="padding:14px">
+      <div class="label" style="margin-bottom:8px">${contoLbl(k)}</div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0"><span class="dim">Saldo iniziale</span><span>${eur(t[k].iniz)}</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0"><span class="dim">+ Entrate</span><span style="color:#4bb573">${eur(t[k].entrate)}</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0"><span class="dim">− Uscite</span><span style="color:#f87171">${eur(t[k].uscite)}</span></div>
+      ${CASSA_VOCI.filter(v=>t[k].voci[v]>0).map(v=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0 2px 10px"><span style="color:var(--text2)">${v}</span><span style="color:var(--text2)">${eur(t[k].voci[v])}</span></div>`).join('')}
+      <div style="display:flex;justify-content:space-between;padding:8px 0 0;margin-top:6px;border-top:1px solid var(--border)"><b style="font-size:13px">Saldo</b><b style="font-size:15px">${eur(t[k].saldo)}</b></div>
+    </div>`).join('')}</div>`;
+
+  if(da.n){
+    h+=`<div class="card" style="padding:14px;margin-bottom:12px;border-color:var(--accent)">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+        <div class="label">Da assegnare · ${da.n}</div><div style="font-size:13px">${eur(da.tot)}</div></div>
+      <div class="dim" style="font-size:12px;margin-bottom:10px">Queste voci non hanno ancora un metodo di pagamento: finché non lo assegni non toccano i saldi.</div>
+      ${da.costi.slice(0,25).map(x=>{const s=S.serate.find(y=>y.id===x.serata_id);return `<div class="srow">
+        <div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:500">${esc(x.voce||'Costo')}</div><div class="dim" style="font-size:12px">− ${eur(x.importo)}${s?' · '+esc(fmtShort(s.data)):''}</div></div>
+        <button class="btn btn-sm btn-ghost" style="flex:none" onclick="cassaSetMetodo('costi_serata',${x.id},'contanti')">💵</button>
+        <button class="btn btn-sm btn-ghost" style="flex:none" onclick="cassaSetMetodo('costi_serata',${x.id},'pos')">💳</button></div>`;}).join('')}
+      ${da.extra.slice(0,25).map(x=>{const s=S.serate.find(y=>y.id===x.serata_id);return `<div class="srow">
+        <div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:500">${esc(x.voce||'Extra')}</div><div class="dim" style="font-size:12px">+ ${eur(x.importo)}${s?' · '+esc(fmtShort(s.data)):''}</div></div>
+        <button class="btn btn-sm btn-ghost" style="flex:none" onclick="cassaSetMetodo('incassi_extra',${x.id},'contanti')">💵</button>
+        <button class="btn btn-sm btn-ghost" style="flex:none" onclick="cassaSetMetodo('incassi_extra',${x.id},'pos')">💳</button></div>`;}).join('')}
+      ${da.n>50?`<div class="dim" style="font-size:12px;margin-top:8px">…e altre ${da.n-50}</div>`:''}
+    </div>`;
+  }
+
+  h+=`<div style="display:flex;gap:8px;margin:16px 0 10px;overflow-x:auto">
+    <span class="chip ${cassaFiltro==='tutti'?'on':''}" style="cursor:pointer" onclick="cassaFiltro='tutti';renderSerate()">Tutti</span>
+    <span class="chip ${cassaFiltro==='contanti'?'on':''}" style="cursor:pointer" onclick="cassaFiltro='contanti';renderSerate()">💵 Contanti</span>
+    <span class="chip ${cassaFiltro==='pos'?'on':''}" style="cursor:pointer" onclick="cassaFiltro='pos';renderSerate()">💳 POS / banca</span>
+  </div>`;
+  const list=L.filter(r=>cassaFiltro==='tutti'||r.conto===cassaFiltro);
+  if(!list.length)h+=`<div class="card" style="padding:20px;color:var(--text2)">Nessun movimento. Gli incassi bar entrano da soli quando chiudi una serata.</div>`;
+  let curM='';
+  list.slice(0,300).forEach(r=>{
+    const m=r.data?new Date(r.data+'T00:00:00').toLocaleDateString('it-IT',{month:'long',year:'numeric'}):'senza data';
+    if(m!==curM){curM=m;h+=`<div class="label" style="margin:16px 0 8px;text-transform:capitalize">${esc(m)}</div>`;}
+    const click=r.src==='mov'?`onclick="openCassaMov(${r.id})"`:(r.src==='serata'?`onclick="openChiusura(${r.id},0)"`:(r.src==='quota'?`onclick="openChiusura(${r.id},2)"`:''));
+    const dest=r.conto==='pos'?'contanti':'pos';
+    h+=`<div class="card ${click?'tap':''}" ${click} style="padding:11px 14px;margin-bottom:7px;display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <div style="min-width:0;flex:1"><div style="font-size:14px;font-weight:500">${r.conto==='pos'?'💳':'💵'} ${esc(r.voce)}</div>
+        <div class="dim" style="font-size:12px;text-transform:capitalize">${esc(r.cat||'')}</div></div>
+      <div style="font-size:15px;font-weight:600;flex:none;color:${r.segno>0?'#4bb573':'#f87171'}">${r.segno>0?'+':'−'}${eur(r.importo)}</div>
+      ${r.sw?`<button class="cbtn" style="width:36px;height:36px;flex:none;font-size:15px" title="sposta su ${dest==='pos'?'POS / banca':'contanti'}" onclick="event.stopPropagation();cassaSposta('${r.sw}',${r.id},'${dest}')">${dest==='pos'?'💳':'💵'}</button>`:''}
+    </div>`;
+  });
+
+  h+=`<div class="card" style="padding:14px;margin-top:18px">
+    <div class="label" style="margin-bottom:10px">⚙️ Saldi iniziali</div>
+    <div class="dim" style="font-size:12px;margin-bottom:10px">Fondo cassa e saldo banca a inizio stagione, prima di ogni movimento registrato qui.</div>
+    <div class="grid2 field">
+      <div><div class="label" style="margin-bottom:6px">💵 Contanti</div><input id="si_cash" type="number" step="0.01" class="input" placeholder="0" value="${t.contanti.iniz||''}"></div>
+      <div><div class="label" style="margin-bottom:6px">💳 POS / banca</div><input id="si_pos" type="number" step="0.01" class="input" placeholder="0" value="${t.pos.iniz||''}"></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:10px" onclick="cassaSaveIniz()">Salva saldi iniziali</button>
+  </div>
+  <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:10px" onclick="printCassa()">🖨 Estratto conto (stampa / PDF)</button>`;
+  return h;
+}
+function cassaCopySql(){try{navigator.clipboard.writeText(CASSA_SQL);toast('SQL copiato: incollalo nello SQL Editor di Supabase');}catch(e){alert(CASSA_SQL);}}
+async function cassaSaveIniz(){
+  await db.from('config').upsert({chiave:'saldo_iniz_contanti',valore:String(Number($('#si_cash').value)||0)});
+  await db.from('config').upsert({chiave:'saldo_iniz_pos',valore:String(Number($('#si_pos').value)||0)});
+  await reloadAll();render();toast('Saldi iniziali salvati');
+}
+// sposta un pagamento da un conto all'altro con un tap
+async function cassaSposta(kind,id,dest){
+  let r;
+  if(kind==='costo')      r=await db.from('costi_serata').update({metodo:dest}).eq('id',id);
+  else if(kind==='extra') r=await db.from('incassi_extra').update({metodo:dest}).eq('id',id);
+  else if(kind==='mov')   r=await db.from('cassa_mov').update({conto:dest}).eq('id',id);
+  else if(kind==='quota') r=await db.from('serate').update({metodo_quota_org:dest}).eq('id',id);
+  else return;
+  if(r&&r.error)return alert('Non riesco a spostarlo: '+r.error.message+(kind==='quota'?'\n\nServe la migration SQL (colonna "metodo_quota_org" su serate).':''));
+  await reloadAll();render();
+  toast(dest==='pos'?'→ 💳 POS / banca':'→ 💵 Contanti');
+}
+async function cassaSetMetodo(tab,id,m){
+  const r=await db.from(tab).update({metodo:m}).eq('id',id);
+  if(r.error)return alert('Serve la migration SQL (colonna "metodo" su '+tab+'):\n'+r.error.message);
+  await reloadAll();render();toast(m==='pos'?'💳 POS / banca':'💵 Contanti');
+}
+
+// ---- movimento libero ----
+let CM=null;
+function openCassaMov(id,tipo){
+  const x=id?(S.cassaMov||[]).find(y=>y.id===id):null;
+  CM=x?{...x}:{id:null,data:today(),conto:'contanti',tipo:tipo||'uscita',importo:'',voce:'',categoria:'',serata_id:null};
+  drawCassaMov();showModal();
+}
+function cmSet(k,v){CM[k]=v;cmGrab();drawCassaMov();}
+function cmGrab(){const g=i=>{const e=document.getElementById(i);return e?e.value:undefined;};
+  const v=g('cm_imp');if(v!==undefined)CM.importo=v;
+  const w=g('cm_voce');if(w!==undefined)CM.voce=w;
+  const d=g('cm_data');if(d!==undefined)CM.data=d;}
+function drawCassaMov(){
+  const giro=CM.tipo==='giroconto';
+  const serPass=S.serate.filter(s=>s.data<=today()).sort((a,b)=>(b.data||'').localeCompare(a.data||'')).slice(0,20);
+  $('#modalbody').innerHTML=`
+  <div class="h2 serif" style="margin-bottom:14px">${CM.id?'Movimento di cassa':'Nuovo movimento'}</div>
+  <div class="seg" id="cm_tipo" style="display:flex;gap:6px;margin-bottom:14px">
+    ${[['uscita','− Uscita'],['entrata','+ Entrata'],['giroconto','⇄ Giroconto']].map(([v,l])=>
+      `<span class="chip ${CM.tipo===v?'on':''}" data-v="${v}" style="cursor:pointer;flex:1;text-align:center" onclick="cmSet('tipo','${v}')">${l}</span>`).join('')}
+  </div>
+  <div class="label" style="margin-bottom:6px">${giro?'Direzione':'Conto'}</div>
+  <div style="display:flex;gap:6px;margin-bottom:14px">
+    ${giro
+      ? [['pos','💵 → 💳 Verso in banca'],['contanti','💳 → 💵 Prelevo contanti']].map(([v,l])=>`<span class="chip ${CM.conto===v?'on':''}" style="cursor:pointer;flex:1;text-align:center" onclick="cmSet('conto','${v}')">${l}</span>`).join('')
+      : [['contanti','💵 Contanti'],['pos','💳 POS / banca']].map(([v,l])=>`<span class="chip ${CM.conto===v?'on':''}" style="cursor:pointer;flex:1;text-align:center" onclick="cmSet('conto','${v}')">${l}</span>`).join('')}
+  </div>
+  <div class="grid2 field">
+    <div><div class="label" style="margin-bottom:6px">Importo</div><input id="cm_imp" type="number" step="0.01" inputmode="decimal" class="input" placeholder="€" value="${CM.importo==null?'':CM.importo}"></div>
+    <div><div class="label" style="margin-bottom:6px">Data</div><input id="cm_data" type="date" class="input" value="${CM.data||today()}"></div>
+  </div>
+  <div class="field"><div class="label" style="margin-bottom:6px">Descrizione</div>
+    <input id="cm_voce" class="input" placeholder="${giro?'es. Versamento settimanale':'es. Acquisto ghiaccio, benzina, acconto DJ'}" value="${esc(CM.voce||'')}"></div>
+  ${giro?'':`<div class="field"><div class="label" style="margin-bottom:6px">Categoria</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">${CASSA_CAT.map(c=>`<span class="chip ${CM.categoria===c?'on':''}" style="cursor:pointer" onclick="cmSet('categoria','${c}')">${c}</span>`).join('')}</div></div>
+  <div class="field"><div class="label" style="margin-bottom:6px">Serata collegata <span class="dim">(facoltativo)</span></div>
+    <select id="cm_ser" class="input" onchange="cmSet('serata_id',this.value?+this.value:null)">
+      <option value="">— nessuna —</option>
+      ${serPass.map(s=>`<option value="${s.id}" ${CM.serata_id===s.id?'selected':''}>${esc(fmtShort(s.data))}</option>`).join('')}
+    </select></div>`}
+  <div class="dim" style="font-size:12px;margin-bottom:12px">${giro?'Il giroconto sposta denaro tra i due conti: non è né un ricavo né un costo, il margine non cambia.':(CM.tipo==='uscita'?'Uscita di cassa. Se la colleghi a una serata resta comunque fuori dal conto economico della serata: per i costi di serata usa il wizard “Chiudi €”.':'Entrata di cassa non legata al bar.')}</div>
+  <button class="btn btn-accent" style="width:100%" onclick="saveCassaMov()">Salva</button>
+  ${CM.id?`<button class="btn btn-ghost btn-sm" style="width:100%;margin-top:8px;color:#f87171" onclick="delCassaMov(${CM.id})">Elimina</button>`:''}
+  <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:8px" onclick="hideModal()">Annulla</button>`;
+  numpad(document.getElementById('modalbody'));
+}
+async function saveCassaMov(){
+  cmGrab();
+  const imp=Number(String(CM.importo).replace(',','.'));
+  if(!imp||isNaN(imp)||imp<=0)return alert('Inserisci un importo maggiore di zero');
+  const row={data:CM.data||today(),conto:CM.conto||'contanti',tipo:CM.tipo||'uscita',importo:Math.abs(imp),
+    voce:(CM.voce||'').trim()||null,categoria:CM.tipo==='giroconto'?null:(CM.categoria||null),
+    serata_id:CM.tipo==='giroconto'?null:(CM.serata_id||null)};
+  const r=CM.id?await db.from('cassa_mov').update(row).eq('id',CM.id):await db.from('cassa_mov').insert(row);
+  if(r.error)return alert('Errore: '+r.error.message+'\n\nSe la tabella non esiste, esegui la migration SQL (bottone in cima alla Cassa).');
+  await reloadAll();hideModal();render();toast('Movimento salvato');
+}
+async function delCassaMov(id){
+  if(!confirm('Eliminare questo movimento?'))return;
+  await db.from('cassa_mov').delete().eq('id',id);
+  await reloadAll();hideModal();render();
+}
+function printCassa(){
+  const t=cassaSaldi(), L=cassaLedger();
+  const w=window.open('','_blank');if(!w)return alert('Consenti i popup per stampare');
+  w.document.write(`<html><head><meta charset="utf-8"><title>Cassa KIRKE</title>
+  <style>body{font-family:-apple-system,system-ui,sans-serif;padding:24px;color:#111}h1{font-size:20px}h2{font-size:15px;margin-top:22px}
+  table{width:100%;border-collapse:collapse;font-size:12px}td,th{padding:5px 6px;border-bottom:1px solid #ddd;text-align:left}.r{text-align:right}</style></head><body>
+  <h1>KIRKE · Estratto conto cassa</h1><div style="font-size:12px;color:#666">Generato il ${new Date().toLocaleString('it-IT')}</div>
+  <h2>Saldi</h2><table>
+  <tr><th>Conto</th><th class="r">Iniziale</th><th class="r">Entrate</th><th class="r">Uscite</th><th class="r">Saldo</th></tr>
+  <tr><td>Contanti</td><td class="r">${eur(t.contanti.iniz)}</td><td class="r">${eur(t.contanti.entrate)}</td><td class="r">${eur(t.contanti.uscite)}</td><td class="r"><b>${eur(t.contanti.saldo)}</b></td></tr>
+  <tr><td>POS / banca</td><td class="r">${eur(t.pos.iniz)}</td><td class="r">${eur(t.pos.entrate)}</td><td class="r">${eur(t.pos.uscite)}</td><td class="r"><b>${eur(t.pos.saldo)}</b></td></tr>
+  <tr><td><b>Totale</b></td><td class="r"></td><td class="r"></td><td class="r"></td><td class="r"><b>${eur(t.totale)}</b></td></tr></table>
+  <h2>Movimenti</h2><table><tr><th>Data</th><th>Conto</th><th>Voce</th><th>Categoria</th><th class="r">Importo</th></tr>
+  ${L.map(r=>`<tr><td>${esc(r.data||'')}</td><td>${r.conto==='pos'?'POS/banca':'Contanti'}</td><td>${esc(r.voce)}</td><td>${esc(r.cat||'')}</td><td class="r">${r.segno>0?'+':'−'}${eur(r.importo)}</td></tr>`).join('')}
+  </table></body></html>`);
+  w.document.close();setTimeout(()=>w.print(),400);
+}
+
 function renderRisultati(){
   const cons=S.serate.filter(s=>s.stato==='consuntivo').sort((a,b)=>(a.data||'').localeCompare(b.data||''));
   const daCh=serateChiudibili();
@@ -4184,6 +4545,14 @@ const EXTIPI=[['sponsor','Sponsor'],['partnership','Partnership'],['cabana','Cab
 const COSTCAT=['Personale bar','Security','Accoglienza','Rimborsi spese','Artisti / DJ','SIAE','Altro'];
 // voci che compaiono già pronte alla chiusura: basta scriverci l'importo
 const COSTPRESET=['Personale bar','Security','Accoglienza'];
+let CHMET='contanti';
+async function chCicloMetodo(id){
+  const x=S.costiSerata.find(y=>y.id===id);if(!x)return;
+  const cur=nMetodo(x), next=cur==='contanti'?'pos':(cur==='pos'?null:'contanti');
+  const r=await db.from('costi_serata').update({metodo:next}).eq('id',id);
+  if(r.error)return alert('Serve la migration SQL (colonna "metodo"): '+r.error.message);
+  await reloadAll();drawChiusura();
+}
 function tipoLabel(t){const m={sponsor:'Sponsor',partnership:'Partnership',cabana:'Cabana / min-spend',ingressi:'Ingressi',altro:'Extra'};return m[t]||'Extra';}
 function segSel(el){el.parentElement.querySelectorAll('span').forEach(x=>x.classList.remove('on'));el.classList.add('on');}
 function segVal(id){const e=document.querySelector('#'+id+' span.on');return e?e.dataset.v:null;}
@@ -4304,8 +4673,9 @@ function chStep2(s){
 async function chAddExtra(){
   const voce=$('#ex_voce').value.trim(),imp=Number(String($('#ex_imp').value).replace(',','.'));
   if(!voce||isNaN(imp))return alert('Compila etichetta e importo');
-  const row={serata_id:CH.sid,voce:voce,importo:imp,tipo:$('#ex_tipo').value,stato:segVal('ex_stato')||'incassato'};
+  const row={serata_id:CH.sid,voce:voce,importo:imp,tipo:$('#ex_tipo').value,stato:segVal('ex_stato')||'incassato',metodo:CHMET};
   let r=await db.from('incassi_extra').insert(row);
+  if(r.error&&row.metodo){delete row.metodo;r=await db.from('incassi_extra').insert(row);}
   if(r.error){delete row.tipo;delete row.stato;r=await db.from('incassi_extra').insert(row);if(!r.error)toast('Salvato senza tipo/stato: esegui le migration SQL');}
   if(r.error)return alert(r.error.message);
   await reloadAll();drawChiusura();
@@ -4322,9 +4692,14 @@ function chStep3(s){
     <input type="number" step="0.01" inputmode="decimal" class="input" id="pre_${esc(c).replace(/[^a-z]/gi,'')}" style="width:96px;text-align:center;padding:8px" placeholder="€"
            onchange="chPreset('${esc(c)}',this.value)">
   </div>`).join('')}
-  ${rows.map(x=>`<div class="srow"><div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:500">${esc(x.voce||'—')}</div>${x.categoria?`<div class="dim" style="font-size:12px">${esc(x.categoria)}</div>`:''}</div><b style="font-size:14px;flex:none">${eur(x.importo)}</b><button class="cbtn" style="width:34px;height:34px;color:#f87171" onclick="chDelCosto(${x.id})">×</button></div>`).join('')||'<div class="dim" style="font-size:13px;margin-bottom:6px">Nessun costo registrato.</div>'}
+  ${rows.map(x=>`<div class="srow"><div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:500">${esc(x.voce||'—')}</div>${x.categoria?`<div class="dim" style="font-size:12px">${esc(x.categoria)}</div>`:''}</div><b style="font-size:14px;flex:none">${eur(x.importo)}</b><button class="cbtn" style="width:34px;height:34px" title="pagato con" onclick="chCicloMetodo(${x.id})">${nMetodo(x)==='pos'?'💳':(nMetodo(x)==='contanti'?'💵':'❔')}</button><button class="cbtn" style="width:34px;height:34px;color:#f87171" onclick="chDelCosto(${x.id})">×</button></div>`).join('')||'<div class="dim" style="font-size:13px;margin-bottom:6px">Nessun costo registrato.</div>'}
   <div class="card" style="padding:14px;margin-top:12px">
     <div class="label" style="margin-bottom:10px">Aggiungi costo</div>
+    <div class="dim" style="font-size:12px;margin-bottom:6px">Pagato con</div>
+    <div style="display:flex;gap:6px;margin-bottom:10px">
+      <span class="chip ${CHMET==='contanti'?'on':''}" style="cursor:pointer;flex:1;text-align:center" onclick="CHMET='contanti';drawChiusura()">💵 Contanti</span>
+      <span class="chip ${CHMET==='pos'?'on':''}" style="cursor:pointer;flex:1;text-align:center" onclick="CHMET='pos';drawChiusura()">💳 POS / banca</span>
+    </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${COSTCAT.map(c=>`<span class="chip ccat" data-v="${c}" style="cursor:pointer" onclick="document.querySelectorAll('.ccat').forEach(x=>x.classList.remove('on'));this.classList.add('on');if(!document.getElementById('co_voce').value)document.getElementById('co_voce').value='${c}'">${c}</span>`).join('')}</div>
     <div class="grid2 field"><input id="co_voce" class="input" placeholder="Voce (es. DJ Marco)"><input id="co_imp" type="number" step="0.01" class="input" placeholder="€ importo"></div>
     <button class="btn btn-accent" style="width:100%" onclick="chAddCosto()">+ Aggiungi</button>
@@ -4333,7 +4708,9 @@ function chStep3(s){
 // voce preimpostata: scrivi l'importo e basta
 async function chPreset(cat,val){
   const v=+val||0; if(v<=0)return;
-  const r=await db.from('costi_serata').insert({serata_id:CH.sid,voce:cat,importo:v,categoria:cat});
+  const row={serata_id:CH.sid,voce:cat,importo:v,categoria:cat,metodo:CHMET};
+  let r=await db.from('costi_serata').insert(row);
+  if(r.error&&row.metodo){delete row.metodo;r=await db.from('costi_serata').insert(row);if(!r.error)toast('Salvato senza metodo: esegui la migration SQL');}
   if(r.error){toast('Errore: '+r.error.message);return;}
   await reloadAll();drawChiusura();toast(cat+' · '+eur(v));
 }
@@ -4341,8 +4718,9 @@ async function chAddCosto(){
   const voce=$('#co_voce').value.trim(),imp=Number(String($('#co_imp').value).replace(',','.'));
   if(!voce||isNaN(imp))return alert('Compila voce e importo');
   const catEl=document.querySelector('.ccat.on');
-  const row={serata_id:CH.sid,voce:voce,importo:imp};if(catEl)row.categoria=catEl.dataset.v;
+  const row={serata_id:CH.sid,voce:voce,importo:imp,metodo:CHMET};if(catEl)row.categoria=catEl.dataset.v;
   let r=await db.from('costi_serata').insert(row);
+  if(r.error&&row.metodo){delete row.metodo;r=await db.from('costi_serata').insert(row);if(!r.error)toast('Salvato senza metodo: esegui la migration SQL');}
   if(r.error&&row.categoria){delete row.categoria;r=await db.from('costi_serata').insert(row);}
   if(r.error)return alert(r.error.message);
   await reloadAll();drawChiusura();
@@ -4606,6 +4984,7 @@ function renderSetup(){
     </div>
     <button class="btn btn-ghost" style="width:100%;margin-top:12px" onclick="genGaps()">Colma i giorni scoperti</button>
   </div>
+  `+gPushCard()+`
   <div class="label" style="margin:20px 0 10px">📲 Notifiche WhatsApp · brief automatico ore 10:00</div>
   <div class="card" style="padding:16px;margin-bottom:14px">
     <div class="dim" style="font-size:12px;line-height:1.6;margin-bottom:14px">Ogni mattina alle 10:00 arriva su WhatsApp il brief: serata di stasera, to-do del giorno e in ritardo, consuntivi mancanti.<br>
@@ -4690,6 +5069,152 @@ async function testWaBrief(btn){
   btn.disabled=false;btn.textContent='📲 Invia brief di prova adesso';
 }
 function logout(){location.reload();}
+
+/* ================= NOTIFICHE PUSH DEL GESTIONALE =================
+   Promemoria "serata chiusa ma merce non scaricata": arrivano dal server
+   (edge function push-send + cron) alle 03, 12, 14, 17 e 21.
+   Si spengono da sole appena lo scarico esiste. */
+const GPUSH_SECRET="34b9a32398361e109f8b05e966ebc9ed";
+function gPushOk(){return ('serviceWorker' in navigator)&&('PushManager' in window)&&('Notification' in window);}
+function gStandalone(){return (window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches)||window.navigator.standalone===true;}
+function gIsIOS(){return /iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);}
+function gPushAttivo(){return localStorage.getItem('cc_push_on')==='1'&&('Notification' in window)&&Notification.permission==='granted';}
+
+async function gPushIscrivi(){
+  if(!('Notification' in window))throw new Error('Questo browser non supporta le notifiche.');
+  const perm=await Notification.requestPermission();
+  if(perm!=='granted')throw new Error('Permesso negato. Attivalo nelle impostazioni del telefono.');
+  if(!gPushOk())throw new Error('Questo browser non supporta le notifiche ad app chiusa.');
+  const reg=await navigator.serviceWorker.register('sw.js');
+  await navigator.serviceWorker.ready;
+  let sub=await reg.pushManager.getSubscription();
+  if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:pB64(PVAPID)});
+  const j=sub.toJSON();
+  const r=await db.rpc('gest_push_subscribe',{secret:GPUSH_SECRET,p_endpoint:sub.endpoint,p_p256dh:j.keys.p256dh,p_auth:j.keys.auth,p_label:(navigator.userAgent||'').slice(0,60)});
+  if(r.error)throw new Error(r.error.message);
+  localStorage.setItem('cc_push_on','1');
+  localStorage.removeItem('cc_push_rinvio');
+  return true;
+}
+async function gPushBottone(btnId,statId){
+  const b=document.getElementById(btnId),st=document.getElementById(statId);
+  const set=(t,c)=>{if(st){st.textContent=t;st.style.color=c||'';}};
+  if(b){b.disabled=true;b.textContent='Attivazione…';}
+  try{
+    await gPushIscrivi();
+    set('✓ Notifiche attive su questo dispositivo, anche ad app chiusa.','#4bb573');
+    try{new Notification('KIRKE',{body:'Notifiche attive su questo dispositivo.',tag:'kirke-test'});}catch(e){}
+    if(b){b.disabled=false;b.textContent='🔔 Riattiva';}
+    setTimeout(()=>{if(document.getElementById('gpushPop'))hideModal();},900);
+    if(TAB==='setup')render();
+  }catch(e){
+    set(e.message,'#f87171');
+    if(b){b.disabled=false;b.textContent='🔔 Attiva notifiche';}
+  }
+}
+async function gPushDisattiva(){
+  try{
+    const reg=await navigator.serviceWorker.getRegistration();
+    const sub=reg&&await reg.pushManager.getSubscription();
+    if(sub){await db.rpc('gest_push_unsubscribe',{secret:GPUSH_SECRET,p_endpoint:sub.endpoint});await sub.unsubscribe();}
+  }catch(e){}
+  localStorage.removeItem('cc_push_on');
+  toast('Notifiche disattivate su questo dispositivo');
+  if(TAB==='setup')render();
+}
+
+/* --- popup di attivazione: cinque passaggi, coi tasti veri del telefono --- */
+function gPassaggi(){
+  const std=gStandalone();
+  return gIsIOS()
+    ? [[std,'Tocca <b>Condividi</b>, l\'icona ⬆︎ in fondo allo schermo'],
+       [std,'Scorri e tocca <b>Aggiungi a Home</b>'],
+       [std,'In alto a destra tocca <b>Aggiungi</b>'],
+       [std,'Chiudi Safari e apri <b>KIRKE</b> dall\'icona sulla Home'],
+       [false,'Tocca <b>Attiva notifiche</b> qui sotto e poi <b>Consenti</b>']]
+    : [[std,'Tocca i <b>tre puntini ⋮</b> in alto a destra'],
+       [std,'Tocca <b>Installa app</b> (o <b>Aggiungi a schermata Home</b>)'],
+       [std,'Conferma con <b>Installa</b>'],
+       [std,'Apri <b>KIRKE</b> dall\'icona sulla Home'],
+       [false,'Tocca <b>Attiva notifiche</b> qui sotto e poi <b>Consenti</b>']];
+}
+function gPushPopup(){
+  const P=gPassaggi(), pronto=gStandalone()||!gIsIOS();
+  document.getElementById('modalbody').innerHTML=`<div id="gpushPop">
+    <div class="serif" style="font-size:19px;margin-bottom:6px">🔔 Attiva le notifiche</div>
+    <div class="dim" style="font-size:13px;line-height:1.6;margin-bottom:16px">Ti avviso quando una serata è chiusa a consuntivo ma la merce non è ancora stata scaricata. Il promemoria si spegne da solo appena fai la conta.</div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:18px">
+      ${P.map((p,i)=>`<div style="display:flex;gap:10px;align-items:flex-start;${p[0]?'opacity:.45':''}">
+        <span style="flex:0 0 22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700;background:${p[0]?'#4bb573':'var(--accent)'};color:#12100c">${p[0]?'✓':(i+1)}</span>
+        <span style="font-size:13.5px;line-height:1.45">${p[1]}</span></div>`).join('')}
+    </div>
+    <div id="gp_stat" class="dim" style="font-size:12.5px;min-height:17px;margin-bottom:10px"></div>
+    <button class="btn btn-accent" id="gp_btn" style="width:100%${pronto?'':';opacity:.5'}" ${pronto?'':'disabled'} onclick="gPushBottone('gp_btn','gp_stat')">🔔 Attiva notifiche</button>
+    <button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="gPushRinvia()">Non ora</button>
+  </div>`;
+  showModal();
+}
+function gPushRinvia(){
+  localStorage.setItem('cc_push_rinvio',String(Date.now()+7*24*3600*1000));
+  hideModal();
+}
+function gPushCard(){
+  const on=gPushAttivo();
+  const perm=('Notification' in window)?Notification.permission:'unsupported';
+  let msg;
+  if(on)msg='Attive su questo dispositivo. Ricevi i promemoria dello scarico merce alle 03, 12, 14, 17 e 21.';
+  else if(perm==='denied')msg='Bloccate da questo browser: riattivale dalle impostazioni del telefono, poi torna qui.';
+  else msg='Ti avviso quando una serata è chiusa a consuntivo ma la merce non è ancora scaricata.';
+  return `<div class="label" style="margin:20px 0 10px">🔔 Notifiche push · promemoria scarico merce</div>
+  <div class="card" style="padding:16px;margin-bottom:14px">
+    <div class="dim" style="font-size:12.5px;line-height:1.6;margin-bottom:12px">${esc(msg)}</div>
+    <div id="gs_stat" class="dim" style="font-size:12.5px;min-height:17px;margin-bottom:8px"></div>
+    <button class="btn ${on?'btn-ghost':'btn-accent'}" style="width:100%" id="gs_btn" onclick="${on?'gPushGuida()':"gPushBottone('gs_btn','gs_stat')"}">${on?'📖 Rivedi la guida':'🔔 Attiva notifiche'}</button>
+    ${on?`<button class="btn btn-ghost" style="width:100%;margin-top:8px;color:#f87171" onclick="gPushDisattiva()">Disattiva su questo dispositivo</button>`:''}
+  </div>`;
+}
+function gPushGuida(){gPushPopup();}
+
+/* --- apertura da notifica: ?go=scarico&serata=NN oppure ?go=carico --- */
+async function gDeepLink(qs){
+  const go=qs.get('go');
+  if(!go)return false;
+  if(go==='scarico'){
+    const sid=+qs.get('serata')||0;
+    gotoTab('magazzino');
+    if(sid&&S.serate.some(x=>x.id===sid)){
+      magSerata=sid;
+      await contaApri();
+      toast('Conta di '+magSerataLabel());
+    } else { magazzinoMode='conta'; render(); }
+    return true;
+  }
+  if(go==='carico'){
+    gotoTab('magazzino'); magazzinoMode='giacenze'; render();
+    toast('Tocca l\'articolo da caricare');
+    return true;
+  }
+  return false;
+}
+async function gPushBoot(){
+  const qs=new URLSearchParams(location.search);
+  let salta=false;
+  try{ salta=await gDeepLink(qs); }catch(e){}
+  if(qs.get('go')){ try{history.replaceState(null,'',location.pathname);}catch(e){} }
+  // il service worker può chiedere alla finestra già aperta di andare sul deep link
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.addEventListener('message',ev=>{
+      const u=ev.data&&ev.data.kirkeGo; if(!u)return;
+      try{ gDeepLink(new URL(u).searchParams); }catch(e){}
+    });
+  }
+  if(salta||MAGONLY)return;
+  if(gPushAttivo()){ try{await gPushIscrivi();}catch(e){} return; }   // rinfresca la subscription
+  const rinvio=+(localStorage.getItem('cc_push_rinvio')||0);
+  if(rinvio&&Date.now()<rinvio)return;
+  if(!('Notification' in window)||Notification.permission==='denied')return;
+  setTimeout(gPushPopup,1200);
+}
 
 // ================= MODAL =================
 function showModal(){document.getElementById('modal').classList.remove('hidden');document.body.classList.add('locked');const sh=document.querySelector('#modal .sheet');if(sh)sh.scrollTop=0;numpad(document.getElementById('modalbody'));}
