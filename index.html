@@ -5138,20 +5138,78 @@ function gPassaggi(){
        [std,'Apri <b>KIRKE</b> dall\'icona sulla Home'],
        [false,'Tocca <b>Attiva notifiche</b> qui sotto e poi <b>Consenti</b>']];
 }
-function gPushPopup(){
-  const P=gPassaggi(), pronto=gStandalone()||!gIsIOS();
-  document.getElementById('modalbody').innerHTML=`<div id="gpushPop">
-    <div class="serif" style="font-size:19px;margin-bottom:6px">🔔 Attiva le notifiche</div>
-    <div class="dim" style="font-size:13px;line-height:1.6;margin-bottom:16px">Ti avviso quando una serata è chiusa a consuntivo ma la merce non è ancora stata scaricata. Il promemoria si spegne da solo appena fai la conta.</div>
-    <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:18px">
-      ${P.map((p,i)=>`<div style="display:flex;gap:10px;align-items:flex-start;${p[0]?'opacity:.45':''}">
-        <span style="flex:0 0 22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700;background:${p[0]?'#4bb573':'var(--accent)'};color:#12100c">${p[0]?'✓':(i+1)}</span>
-        <span style="font-size:13.5px;line-height:1.45">${p[1]}</span></div>`).join('')}
+/* --- le tre zone di interesse: cosa arriva, quando, e cosa succede al tocco --- */
+const GPUSH_ZONE=[
+  {ico:'🍾',tit:'Magazzino',sot:'La merce che non è ancora scesa',stato:'attiva',
+   testo:'La serata è chiusa a consuntivo ma le bottiglie risultano ancora tutte in magazzino. Finché non conti, quella serata ha un margine finto.',
+   quando:'03:00 · 12:00 · 14:00 · 17:00 · 21:00, dal giorno dopo la serata',
+   tap:'Apre la conta di quella serata, già impostata. Zero passaggi in mezzo.',
+   stop:'Si spegne da sola appena registri lo scarico.'},
+  {ico:'📊',tit:'Consuntivi',sot:'La serata da chiudere',stato:'presto',
+   testo:'Serata passata e incasso ancora non registrato: senza quel numero non gira nulla, né il margine né la cassa.',
+   quando:'Una volta al giorno, la mattina',
+   tap:'Apre il consuntivo della serata, pronto da riempire.',
+   stop:'Si spegne quando chiudi la serata.'},
+  {ico:'👥',tit:'Team',sot:'Chi manca ancora di chiamare',stato:'presto',
+   testo:'Serata vicina e ruoli ancora scoperti: ti dico quali mancano e chi chiamare.',
+   quando:'Il pomeriggio, nei giorni prima della serata',
+   tap:'Apre la copertura di quella serata, col numero pronto da toccare.',
+   stop:'Si spegne quando la serata è coperta.'}
+];
+function gZonaCard(z){
+  const on=z.stato==='attiva';
+  return `<div class="card" style="padding:13px 14px;border-left:3px solid ${on?'var(--accent)':'var(--border)'}">
+    <div style="display:flex;align-items:center;gap:9px;margin-bottom:7px">
+      <span style="font-size:19px;line-height:1">${z.ico}</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:14px;font-weight:600;line-height:1.2">${z.tit}</div>
+        <div class="dim" style="font-size:11.5px">${esc(z.sot)}</div></div>
+      <span style="flex:0 0 auto;font-size:9.5px;font-weight:700;letter-spacing:.09em;padding:3px 7px;border-radius:20px;${on?'background:var(--accent);color:#12100c':'border:1px solid var(--border);color:var(--muted,#8a8378)'}">${on?'ATTIVA':'PRESTO'}</span>
     </div>
-    <div id="gp_stat" class="dim" style="font-size:12.5px;min-height:17px;margin-bottom:10px"></div>
-    <button class="btn btn-accent" id="gp_btn" style="width:100%${pronto?'':';opacity:.5'}" ${pronto?'':'disabled'} onclick="gPushBottone('gp_btn','gp_stat')">🔔 Attiva notifiche</button>
-    <button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="gPushRinvia()">Non ora</button>
-  </div>`;
+    <div class="dim" style="font-size:12.5px;line-height:1.55;margin-bottom:9px">${esc(z.testo)}</div>
+    <div style="display:flex;flex-direction:column;gap:5px;font-size:11.5px;line-height:1.45">
+      <div style="display:flex;gap:7px"><span style="flex:0 0 15px">🕒</span><span class="dim">${esc(z.quando)}</span></div>
+      <div style="display:flex;gap:7px"><span style="flex:0 0 15px">👆</span><span class="dim">${esc(z.tap)}</span></div>
+      <div style="display:flex;gap:7px"><span style="flex:0 0 15px">🤫</span><span class="dim">${esc(z.stop)}</span></div>
+    </div></div>`;
+}
+let GPUSH_STEP=1;
+function gPushPopup(step){
+  GPUSH_STEP=step||1;
+  const pronto=gStandalone()||!gIsIOS();
+  const head=`<div style="margin:-4px -2px 16px;padding:20px 18px 17px;border-radius:16px;background:linear-gradient(150deg,${hexToRgba(PREF.accent,.28)},${hexToRgba(PREF.accent,.05)} 65%,transparent);text-align:center">
+    <div style="font-size:34px;line-height:1;margin-bottom:9px">🔔</div>
+    <div class="serif" style="font-size:21px;line-height:1.2;margin-bottom:6px">Il gestionale ti scrive lui</div>
+    <div class="dim" style="font-size:12.5px;line-height:1.5;max-width:270px;margin:0 auto">Non devi più ricordarti niente: quando qualcosa resta a metà, te lo dice il telefono.</div>
+    <div style="display:flex;gap:5px;justify-content:center;margin-top:14px">
+      ${[1,2].map(i=>`<span style="width:${GPUSH_STEP===i?'18px':'6px'};height:6px;border-radius:3px;background:${GPUSH_STEP===i?'var(--accent)':'var(--border)'};transition:width .2s"></span>`).join('')}
+    </div></div>`;
+
+  let corpo;
+  if(GPUSH_STEP===1){
+    corpo=`<div class="label" style="margin-bottom:10px">Cosa ti arriva · tre zone</div>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px">${GPUSH_ZONE.map(gZonaCard).join('')}</div>
+      <div class="dim" style="font-size:11.5px;line-height:1.5;text-align:center;margin-bottom:14px">Niente raffiche: una notifica per volta, e sempre con dentro cosa fare.</div>
+      <button class="btn btn-accent" style="width:100%" onclick="gPushPopup(2)">Va bene, come si attiva? →</button>
+      <button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="gPushRinvia()">Non ora</button>`;
+  } else {
+    const P=gPassaggi(), fatti=P.filter(p=>p[0]).length;
+    corpo=`<div class="label" style="margin-bottom:4px">Come si attiva · ${gIsIOS()?'iPhone':'Android'}</div>
+      <div class="dim" style="font-size:11.5px;line-height:1.5;margin-bottom:14px">${fatti?('Ne hai già fatti '+fatti+' su 5, ti resta il resto.'):'Cinque tocchi, una volta sola su questo telefono.'}</div>
+      <div style="display:flex;flex-direction:column;gap:11px;margin-bottom:18px">
+        ${P.map((p,i)=>`<div style="display:flex;gap:11px;align-items:flex-start;${p[0]?'opacity:.42':''}">
+          <span style="flex:0 0 23px;height:23px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700;background:${p[0]?'#4bb573':'var(--accent)'};color:#12100c">${p[0]?'✓':(i+1)}</span>
+          <span style="font-size:13.5px;line-height:1.45;padding-top:2px">${p[1]}</span></div>`).join('')}
+      </div>
+      <div id="gp_stat" class="dim" style="font-size:12.5px;min-height:17px;margin-bottom:10px"></div>
+      <button class="btn btn-accent" id="gp_btn" style="width:100%${pronto?'':';opacity:.5'}" ${pronto?'':'disabled'} onclick="gPushBottone('gp_btn','gp_stat')">🔔 Attiva notifiche</button>
+      ${pronto?'':`<div class="dim" style="font-size:11.5px;line-height:1.5;text-align:center;margin-top:9px">Su iPhone il bottone si accende solo dopo che hai aperto KIRKE dall'icona sulla Home: è Apple che vuole così.</div>`}
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn btn-ghost" style="flex:0 0 44%" onclick="gPushPopup(1)">← Indietro</button>
+        <button class="btn btn-ghost" style="flex:1" onclick="gPushRinvia()">Non ora</button>
+      </div>`;
+  }
+  document.getElementById('modalbody').innerHTML=`<div id="gpushPop">${head}${corpo}</div>`;
   showModal();
 }
 function gPushRinvia(){
@@ -5162,7 +5220,7 @@ function gPushCard(){
   const on=gPushAttivo();
   const perm=('Notification' in window)?Notification.permission:'unsupported';
   let msg;
-  if(on)msg='Attive su questo dispositivo. Ricevi i promemoria dello scarico merce alle 03, 12, 14, 17 e 21.';
+  if(on)msg='Attive su questo dispositivo. Oggi suona il magazzino (03, 12, 14, 17 e 21). Consuntivi e Team arrivano presto, senza che tu debba rifare nulla.';
   else if(perm==='denied')msg='Bloccate da questo browser: riattivale dalle impostazioni del telefono, poi torna qui.';
   else msg='Ti avviso quando una serata è chiusa a consuntivo ma la merce non è ancora scaricata.';
   return `<div class="label" style="margin:20px 0 10px">🔔 Notifiche push · promemoria scarico merce</div>
