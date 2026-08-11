@@ -329,13 +329,13 @@ function openApp(){
 }
 
 // ================= STATE =================
-let S={tipologie:[],ruoli:[],tipRuoli:[],personale:[],serate:[],assegn:[],contatti:[],config:{},articoli:[],movimenti:[],prodotti:[],ricette:[],vendite:[],costiSerata:[],incassiExtra:[],todo:[],note:[],file:[],cartella:[],allestimento:[],allestLink:[],partnership:[],todoSub:[],allestPos:[],cassaMov:[]};
+let S={tipologie:[],ruoli:[],tipRuoli:[],personale:[],serate:[],assegn:[],contatti:[],config:{},articoli:[],movimenti:[],prodotti:[],ricette:[],vendite:[],costiSerata:[],incassiExtra:[],todo:[],note:[],file:[],cartella:[],allestimento:[],allestLink:[],partnership:[],todoSub:[],allestPos:[],cassaMov:[],costiFatture:[]};
 let TAB='home';
 async function boot(){
   document.getElementById('view').innerHTML='<div class="skel" style="height:118px;margin-bottom:14px"></div><div class="skel" style="height:86px;margin-bottom:14px"></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px"><div class="skel" style="height:72px"></div><div class="skel" style="height:72px"></div></div><div class="skel" style="height:64px;margin-bottom:10px"></div><div class="skel" style="height:64px"></div>';
   if(!initDb()){let n=0;await new Promise(r=>{const t=setInterval(()=>{if(initDb()||++n>24){clearInterval(t);r();}},250);});}
   if(!db){document.getElementById('view').innerHTML='<div class="card" style="padding:18px;color:#f87171">Connessione assente: impossibile caricare i dati. Riapri con internet attivo.</div>';return;}
-  await reloadAll(); subscribe(); render();
+  await reloadAll(); magPreselezione(); subscribe(); render();
   try{await gPushBoot();}catch(e){}
   if(PSEC){try{await prenCarica();pStartPoll();if(TAB==='prenota')render();}catch(e){}}
 }
@@ -374,7 +374,7 @@ async function reloadAll(){
 }
 async function _reloadAll(){
   if(MAGONLY) return reloadMag();
-  const [tip,ruo,tr,per,ser,ass,con,cfgr,arts,movs,pro,ric,ven,cos,inc,tdo,nte,fls,crt,alle,alk,prt,tds,apz,csm]=await Promise.all([
+  const [tip,ruo,tr,per,ser,ass,con,cfgr,arts,movs,pro,ric,ven,cos,inc,tdo,nte,fls,crt,alle,alk,prt,tds,apz,csm,cft]=await Promise.all([
     db.from('tipologie').select('*').order('ordine'),
     db.from('ruoli').select('*').order('id'),
     db.from('tipologia_ruoli').select('*'),
@@ -400,6 +400,7 @@ async function _reloadAll(){
     db.from('todo_sub').select('*').order('created_at'),
     db.from('allestimento_pos').select('*').order('created_at'),
     db.from('cassa_mov').select('*').order('data',{ascending:false}),
+    db.from('costi_fatture').select('*').order('data',{ascending:false}),
   ]);
   S.tipologie=tip.data||[];S.ruoli=ruo.data||[];S.tipRuoli=tr.data||[];
   S.personale=per.data||[];S.serate=ser.data||[];S.assegn=ass.data||[];S.contatti=con.data||[];
@@ -410,6 +411,7 @@ async function _reloadAll(){
   S.todo=(tdo&&tdo.data)||[]; S.note=(nte&&nte.data)||[]; S.file=(fls&&fls.data)||[]; S.cartella=(crt&&crt.data)||[]; S.allestimento=(alle&&alle.data)||[]; S.allestLink=(alk&&alk.data)||[];
   S.partnership=(prt&&prt.data)||[]; S.todoSub=(tds&&tds.data)||[]; S.allestPos=(apz&&apz.data)||[];
   S.cassaMov=(csm&&csm.data)||[]; S.cassaMovErr=!!(csm&&csm.error);
+  S.costiFatture=(cft&&cft.data)||[];
   const cat=await db.from('mag_categorie').select('*').order('ordine');
   S.mag_categorie=(cat&&cat.data)||[];
 }
@@ -443,7 +445,7 @@ function rtPing(){
 function subscribe(){
   const tab = MAGONLY
     ? ['articoli','movimenti','prodotti','ricette','vendite']
-    : ['tipologie','ruoli','tipologia_ruoli','personale','serate','serata_personale','contatti','config','articoli','movimenti','prodotti','ricette','vendite','costi_serata','incassi_extra','todo','note','file','cartella','allestimento','allestimento_link','partnership','todo_sub','allestimento_pos','cassa_mov'];
+    : ['tipologie','ruoli','tipologia_ruoli','personale','serate','serata_personale','contatti','config','articoli','movimenti','prodotti','ricette','vendite','costi_serata','incassi_extra','todo','note','file','cartella','allestimento','allestimento_link','partnership','todo_sub','allestimento_pos','cassa_mov','costi_fatture'];
   const ch=db.channel('rt_all');
   tab.forEach(t=>ch.on('postgres_changes',{event:'*',schema:'public',table:t},rtPing));
   ch.subscribe();
@@ -1034,6 +1036,7 @@ function renderSerate(){
       <span class="chip ${serateMode==='elenco'?'on':''}" style="cursor:pointer" onclick="serateMode='elenco';renderSerate()">Serate</span>
       <span class="chip ${serateMode==='risultati'?'on':''}" style="cursor:pointer" onclick="serateMode='risultati';renderSerate()">📊 Risultati${serateChiudibili().length?' · '+serateChiudibili().length:''}</span>
       <span class="chip ${serateMode==='cassa'?'on':''}" style="cursor:pointer" onclick="serateMode='cassa';renderSerate()">💰 Cassa${cassaDaAssegnare().n?' · '+cassaDaAssegnare().n:''}</span>
+      <span class="chip ${serateMode==='costieonica'?'on':''}" style="cursor:pointer" onclick="serateMode='costieonica';renderSerate()">🧾 Costi Eonica Group</span>
       <span class="chip ${serateMode==='file'?'on':''}" style="cursor:pointer" onclick="serateMode='file';renderSerate()">Documenti${S.file.length?' · '+S.file.length:''}</span>
     </div>`;
   if(serateMode==='copertura'){
@@ -1075,6 +1078,8 @@ function renderSerate(){
     html+=renderRisultati();
   } else if(serateMode==='cassa'){
     html+=renderCassa();
+  } else if(serateMode==='costieonica'){
+    html+=renderCostiEonica();
   } else if(serateMode==='sponsor'){
     html+=renderSponsor();
   } else if(serateMode==='appunti'){
@@ -2515,6 +2520,19 @@ function magSerataLabel(){
   const s=S.serate.find(x=>x.id===magSerata);
   return s?fmtDay(s.data):'nessuna';
 }
+/* Il default vuoto è costato 55 scarichi su 93 finiti senza serata: merce uscita dal
+   magazzino che non compare nei costi di nessuno, e margine più alto del vero.
+   Quindi non chiedo più a vuoto: propongo la serata passata più vecchia a cui manca
+   ancora lo scarico — quella che urge — e resta scritto in cima al magazzino, con
+   "Cambia" a fianco. Per sbagliare ora bisogna farlo apposta. */
+function magPreselezione(){
+  if(magSerata!==null)return;                    // l'utente ha già scelto in questa sessione
+  const t=today();
+  const c=S.serate
+    .filter(s=>s.data<=t&&!haScarico(s.id))
+    .sort((a,b)=>a.data.localeCompare(b.data))[0];
+  if(c)magSerata=c.id;
+}
 // prima di uno scarico voglio sapere per quale serata: si chiede una volta sola
 function magChiediSerata(poi){
   const list=magSerateVicine();
@@ -3112,6 +3130,14 @@ function renderMagazzino(){
   else if(magazzinoMode==='categorie'){ html+=renderCategorie(); }
   else if(magazzinoMode==='giacenze'){
     if(MAGONLY&&magazzinoMode==='allestimento')magazzinoMode='giacenze';
+    // Qui si scarica col più e col meno, ed è qui che nascevano i movimenti orfani:
+    // niente diceva dove stesse finendo il consumo. Ora è scritto, con "Cambia" a fianco.
+    const _sG=magSerata?S.serate.find(x=>x.id===magSerata):null;
+    html+=`<div class="card" style="padding:11px 13px;margin-bottom:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;${_sG?'':'border-color:var(--accent-line)'}">
+      <div style="flex:1;min-width:150px">
+        <div class="label" style="font-size:10px;margin-bottom:2px">Quello che scarichi va nel bilancio di</div>
+        <div style="font-size:13.5px;font-weight:600;text-transform:capitalize">${_sG?esc(fmtDay(_sG.data)):'<span style="color:var(--accent)">nessuna serata — non entrerà in nessun bilancio</span>'}</div></div>
+      <button class="btn btn-ghost btn-sm" onclick="magChiediSerata(()=>render())">Cambia</button></div>`;
     const low=arts.filter(a=>daOrdinare(a)>0);
     const zero=arts.filter(a=>giacenza(a.id)<=0);
     const valore=arts.reduce((t,a)=>t+giacenza(a.id)*costoUnit(a),0);
@@ -4298,6 +4324,110 @@ function cassaDaAssegnare(){
   const extra=S.incassiExtra.filter(x=>(x.stato||'incassato')==='incassato'&&!nMetodo(x)&&Number(x.importo||0)>0);
   return {costi,extra,n:costi.length+extra.length,
     tot:costi.reduce((t,x)=>t+Number(x.importo||0),0)+extra.reduce((t,x)=>t+Number(x.importo||0),0)};
+}
+
+/* ================= COSTI EONICA GROUP =================
+   Le fatture ricevute dalla società: costi di struttura, merce, materiali, stampa.
+   Vivono su Supabase, quindi le correzioni di uno le vedono tutti — non nella
+   memoria di un browser come nel file di partenza.
+   Le voci "escluse" (struttura, software, consulenze) restano visibili ma fuori dal
+   totale operativo: nasconderle del tutto significherebbe far sparire costi veri. */
+let cfMode='pagamento', cfEscluse=false;
+const CF_CAT=['Struttura e service','Merce bar e cucina','Materiali e allestimento','Stampa e comunicazione','Software e digitale','Consulenze e servizi','Personale e collaborazioni','Utenze','Tasse e commissioni','Altro','Da classificare'];
+const CF_PAG=['Bonifico','Carta di pagamento','Contanti','RIBA','RID','SEPA Direct Debit','Assegno','Compensazione','Non indicato'];
+function cfList(){ return (S.costiFatture||[]).filter(x=>cfEscluse||!x.escluso); }
+function cfTot(l,k){ return (l||cfList()).reduce((s,x)=>s+Number(x[k||'totale']||0),0); }
+async function cfSet(id,campo,val){
+  const r=await db.from('costi_fatture').update({[campo]:val}).eq('id',id);
+  if(r.error){toast('Non salvato: '+r.error.message);return;}
+  const x=(S.costiFatture||[]).find(y=>y.id===id); if(x)x[campo]=val;
+  toast('Salvato'); render();
+}
+async function cfElimina(id){
+  const x=(S.costiFatture||[]).find(y=>y.id===id); if(!x)return;
+  if(!confirm('Elimino la fattura di '+x.fornitore+' da '+eur(x.totale)+'?\n\nSe è un costo vero conviene invece escluderla dal totale: resta tracciata.'))return;
+  const r=await db.from('costi_fatture').delete().eq('id',id);
+  if(r.error){toast('Errore: '+r.error.message);return;}
+  await reloadAll(); render(); toast('Eliminata');
+}
+function cfCsv(){
+  const l=(S.costiFatture||[]);
+  const h=['Data','Fornitore','P.IVA','Numero','Tipo','Categoria','Pagamento','Scadenza','Imponibile','IVA','Totale','Esclusa','Note'];
+  const r=l.map(x=>[x.data,x.fornitore,x.piva,x.numero,x.tipo_doc,x.categoria,x.pagamento,x.scadenza||'',x.imponibile,x.iva,x.totale,x.escluso?'si':'no',x.note||'']);
+  const csv=[h,...r].map(a=>a.map(v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"').join(';')).join('\n');
+  const b=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'}),u=URL.createObjectURL(b),a=document.createElement('a');
+  a.href=u;a.download='costi-eonica-group.csv';a.click();URL.revokeObjectURL(u);
+}
+function cfGruppo(campo){
+  const m={}; cfList().forEach(x=>{const k=x[campo]||'—';(m[k]=m[k]||{t:0,n:0});m[k].t+=Number(x.totale||0);m[k].n++;});
+  return Object.entries(m).sort((a,b)=>b[1].t-a[1].t);
+}
+function renderCostiEonica(){
+  const L=cfList(), tot=cfTot(L), imp=cfTot(L,'imponibile'), iva=cfTot(L,'iva');
+  const esc_=(S.costiFatture||[]).filter(x=>x.escluso), totEsc=cfTot(esc_);
+  const nonInd=L.filter(x=>x.pagamento==='Non indicato');
+  const daCat=L.filter(x=>x.categoria==='Da classificare');
+  if(!(S.costiFatture||[]).length) return `<div class="card" style="padding:22px;text-align:center">
+    <div class="serif" style="font-size:17px;margin-bottom:6px">Nessuna fattura caricata</div>
+    <div class="dim" style="font-size:13px;line-height:1.5">Le fatture ricevute si caricano dall'export di Aruba.</div></div>`;
+
+  let h=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+    <div class="card" style="padding:14px"><div class="label" style="font-size:10px;margin-bottom:4px">Totale operativo</div>
+      <div style="font-size:21px;font-weight:650">${eur(tot)}</div><div class="dim" style="font-size:11.5px">${L.length} fatture${imp?' · imponibile '+eur(imp):''}</div></div>
+    <div class="card" style="padding:14px"><div class="label" style="font-size:10px;margin-bottom:4px">IVA</div>
+      <div style="font-size:21px;font-weight:650">${eur(iva)}</div><div class="dim" style="font-size:11.5px">${esc_.length?esc_.length+' escluse · '+eur(totEsc):'nessuna esclusa'}</div></div></div>`;
+
+  if(nonInd.length||daCat.length){
+    h+=`<div class="card" style="padding:12px 14px;margin-bottom:12px;border-color:var(--accent-line)">
+      <div class="dim" style="font-size:12.5px;line-height:1.55">
+      ${nonInd.length?`<b style="color:var(--accent)">${nonInd.length} senza metodo di pagamento</b> per ${eur(cfTot(nonInd))}: finché non le attribuisci, il riepilogo qui sotto è incompleto.<br>`:''}
+      ${daCat.length?`<b style="color:var(--accent)">${daCat.length} da classificare</b> per ${eur(cfTot(daCat))}.`:''}
+      </div></div>`;
+  }
+
+  h+=`<div style="display:flex;gap:7px;margin-bottom:12px;overflow-x:auto;padding-bottom:2px">
+    ${[['pagamento','Pagamento'],['categoria','Categoria'],['fornitore','Fornitore'],['elenco','Tutte']].map(([k,t])=>
+      `<span class="chip ${cfMode===k?'on':''}" style="cursor:pointer" onclick="cfMode='${k}';render()">${t}</span>`).join('')}
+    <span class="chip ${cfEscluse?'on':''}" style="cursor:pointer;margin-left:auto" onclick="cfEscluse=!cfEscluse;render()">${cfEscluse?'✓ ':''}Mostra escluse</span></div>`;
+
+  if(cfMode==='elenco'){
+    h+=L.slice().sort((a,b)=>b.data.localeCompare(a.data)).map(x=>`
+      <div class="card" style="padding:13px 14px;margin-bottom:9px;${x.escluso?'opacity:.62;border-style:dashed':''}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:14.5px;font-weight:600;line-height:1.25">${esc(x.fornitore)}</div>
+            <div class="dim" style="font-size:11.5px">${fmtShort(x.data)} · n. ${esc(x.numero||'—')}${x.tipo_doc&&x.tipo_doc!=='Fattura'?' · '+esc(x.tipo_doc):''}</div></div>
+          <div style="text-align:right;flex:none">
+            <div style="font-size:16px;font-weight:650">${eur(x.totale)}</div>
+            <div class="dim" style="font-size:10.5px">iva ${eur(x.iva)}</div></div></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          <select class="input" style="flex:1;min-width:130px;min-height:36px;padding:6px 9px;font-size:12.5px" onchange="cfSet(${x.id},'categoria',this.value)">
+            ${CF_CAT.map(c=>`<option ${c===x.categoria?'selected':''}>${c}</option>`).join('')}</select>
+          <select class="input" style="flex:1;min-width:130px;min-height:36px;padding:6px 9px;font-size:12.5px;${x.pagamento==='Non indicato'?'border-color:var(--accent)':''}" onchange="cfSet(${x.id},'pagamento',this.value)">
+            ${CF_PAG.map(c=>`<option ${c===x.pagamento?'selected':''}>${c}</option>`).join('')}</select>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:8px;align-items:center">
+          <button class="btn btn-sm btn-ghost" style="flex:1" onclick="cfSet(${x.id},'escluso',${x.escluso?'false':'true'})">${x.escluso?'↩︎ Rimetti nel totale':'Escludi dal totale'}</button>
+          <button class="btn btn-sm btn-ghost" style="color:#f87171;flex:none" onclick="cfElimina(${x.id})">Elimina</button></div>
+        ${x.note?`<div class="dim" style="font-size:11.5px;margin-top:7px">${esc(x.note)}</div>`:''}
+      </div>`).join('');
+  } else {
+    const g=cfGruppo(cfMode), t=g.reduce((s,x)=>s+x[1].t,0);
+    h+=`<div class="card" style="padding:4px 0;margin-bottom:10px">`;
+    g.forEach(([k,v])=>{
+      const pc=t?v.t/t*100:0;
+      h+=`<div style="padding:11px 14px;border-bottom:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:6px">
+          <div style="font-size:13.5px;font-weight:550;${k==='Non indicato'||k==='Da classificare'?'color:var(--accent)':''}">${esc(k)}</div>
+          <div style="text-align:right;flex:none"><span style="font-size:14px;font-weight:650">${eur(v.t)}</span>
+            <span class="dim" style="font-size:11px;margin-left:6px">${v.n} fatt.</span></div></div>
+        <div class="meter" style="height:5px"><span style="width:${pc.toFixed(1)}%;background:var(--accent)"></span></div>
+        <div class="dim" style="font-size:10.5px;margin-top:3px">${pc.toFixed(1)}% del totale</div></div>`;
+    });
+    h+=`<div style="padding:12px 14px;display:flex;justify-content:space-between;font-weight:650;font-size:14px"><span>Totale</span><span>${eur(t)}</span></div></div>`;
+  }
+  h+=`<button class="btn btn-ghost" style="width:100%;margin-top:4px" onclick="cfCsv()">Scarica CSV per il commercialista</button>`;
+  return h;
 }
 
 function renderCassa(){
