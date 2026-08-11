@@ -983,33 +983,31 @@ async function htmlInPdf(html){
     pulisci(); return blob;
   }catch(e){ pulisci(); return null; }
 }
-/* archivia il documento in Documenti: prova il PDF, ripiega sull'HTML */
+/* I documenti restano HTML nell'archivio: si aprono nel gestionale e si sfogliano.
+   La conversione in PDF avviene al momento del download. Niente BOM in testa al file:
+   metterlo prima del DOCTYPE fa mostrare al browser il sorgente invece della pagina. */
 async function archiviaDoc(html,baseNome,cartella,pathBase,vecchiRegex){
   const cid=await cartellaId(cartella);
-  let blob=await htmlInPdf(html), ext='pdf', mime='application/pdf';
-  if(!blob){ blob=new Blob([html],{type:'text/html'}); ext='html'; mime='text/html'; }
-  const nome=baseNome+'.'+ext;
-  const path=pathBase+'_'+Date.now()+'.'+ext;
-  const up=await db.storage.from('files').upload(path,blob,{contentType:mime});
+  const blob=new Blob([html],{type:'text/html;charset=utf-8'});
+  const nome=baseNome+'.html';
+  const path=pathBase+'_'+Date.now()+'.html';
+  const up=await db.storage.from('files').upload(path,blob,{contentType:'text/html;charset=utf-8'});
   if(up.error)return null;
   const pub=db.storage.from('files').getPublicUrl(path);
-  // tolgo le versioni precedenti dello stesso documento, in qualunque formato
   for(const f of (S.file||[]).filter(f=>f.cartella_id===cid&&vecchiRegex.test(f.nome||''))){
     if(f.path)await db.storage.from('files').remove([f.path]);
     await db.from('file').delete().eq('id',f.id);
   }
   await db.from('file').insert({nome:nome,path:path,url:pub.data.publicUrl,size:blob.size,cartella_id:cid});
   await reloadAll();
-  return {nome:nome,ext:ext};
+  return {nome:nome,ext:'html'};
 }
 
 async function generaConsuntivoStagione(apri){
   const html=consuntivoStagioneHtml();
   const base='Consuntivo stagione — aggiornato al '+fmtShort(today());
-  const syn=document.getElementById('synced'); if(syn)syn.textContent='● creo il PDF…';
-  try{ const r=await archiviaDoc(html,base,'Consuntivi Stagione','consuntivi-stagione/'+today(),/^Consuntivo stagione/);
-       if(r&&r.ext==='html')toast('Salvato in HTML: il PDF non si è potuto creare');
-  }catch(e){}
+  const syn=document.getElementById('synced'); if(syn)syn.textContent='● archivio il consuntivo…';
+  try{ await archiviaDoc(html,base,'Consuntivi Stagione','consuntivi-stagione/'+today(),/^Consuntivo stagione/); }catch(e){}
   if(syn)syn.textContent='● live';
   if(apri)apriDoc(html,'Consuntivo di stagione — '+fmtShort(today()));
   return html;
@@ -1020,10 +1018,9 @@ async function generaConsuntivo(sid,apri){
   const s=S.serate.find(x=>x.id===sid); if(!s)return null;
   const html=consuntivoHtml(s);
   const base='Consuntivo '+fmtShort(s.data);
-  const syn=document.getElementById('synced'); if(syn)syn.textContent='● creo il PDF…';
+  const syn=document.getElementById('synced'); if(syn)syn.textContent='● archivio il consuntivo…';
   try{ const r=await archiviaDoc(html,base,'Consuntivi serate','consuntivi/'+s.data,
          new RegExp('^'+base.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\.(pdf|html)$'));
-       if(r&&r.ext==='html')toast('Salvato in HTML: il PDF non si è potuto creare');
   }catch(e){}
   if(syn)syn.textContent='● live';
   if(apri)apriDoc(html,'Consuntivo '+fmtShort(s.data)+(s.nome?' · '+s.nome:''));
@@ -1583,7 +1580,7 @@ function fileOrganizer(){
       <div style="flex:1;min-width:0"><a href="javascript:void 0" onclick="apriFileId(${f.id});return false" style="font-size:14px;font-weight:500;color:var(--text);text-decoration:none">${esc(f.nome)}</a><div class="dim" style="font-size:12px">${fmtSize(f.size)}</div></div>
       ${selMode?`<span onclick="selF(${f.id})" style="flex:none;width:24px;height:24px;border-radius:7px;border:2px solid ${selFile[f.id]?'var(--accent)':'var(--border)'};background:${selFile[f.id]?'var(--accent)':'transparent'};color:#12100c;display:flex;align-items:center;justify-content:center;font-size:14px;cursor:pointer">${selFile[f.id]?'✓':''}</span>`
         :`<button onclick="apriFileId(${f.id})" class="btn btn-sm btn-ghost">Apri</button>
-          <button class="btn btn-sm btn-ghost" onclick="scaricaUrl('${f.url}','${esc(f.nome)}')" title="Scarica">⬇︎</button>
+          <button class="btn btn-sm btn-ghost" onclick="scaricaFile(S.file.find(x=>x.id===${f.id}))" title="Scarica">⬇︎</button>
           <button class="btn btn-sm btn-ghost" onclick="openMove('file',${f.id})">Sposta</button>
           <button class="btn btn-sm btn-ghost" style="color:#f87171" onclick="delFile(${f.id})">×</button>`}</div>`;});
   if(!subs.length&&!files.length)h+=`<div class="card" style="padding:20px;color:var(--text2)">Cartella vuota. Crea una sottocartella o carica file/cartelle.</div>`;
@@ -1628,9 +1625,24 @@ function caricaJSZip(){
     sc.onload=()=>res(!!window.JSZip); sc.onerror=()=>res(false); document.head.appendChild(sc);});
 }
 function scaricaUrl(url,nome){const a=document.createElement('a');a.href=url;a.download=nome||'';a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();a.remove();}
+/* Scaricare un .html serve a poco: si apre solo dal browser e non si allega a niente.
+   Quindi al download i documenti HTML diventano PDF al volo. Nell'archivio restano HTML. */
+function eHtml(f){return /\.html?$/i.test(f.nome||'')||/text\/html/.test(f.tipo||'');}
+async function scaricaFile(f){
+  if(!eHtml(f)){scaricaUrl(f.url,f.nome);return;}
+  const syn=document.getElementById('synced'); if(syn)syn.textContent='● preparo il PDF…';
+  let blob=null;
+  try{ const r=await fetch(f.url); if(r.ok) blob=await htmlInPdf(await r.text()); }catch(e){}
+  if(syn)syn.textContent='● live';
+  if(!blob){ toast('PDF non riuscito: scarico il documento originale'); scaricaUrl(f.url,f.nome); return; }
+  const u=URL.createObjectURL(blob);
+  scaricaUrl(u,(f.nome||'documento').replace(/\.html?$/i,'')+'.pdf');
+  setTimeout(()=>URL.revokeObjectURL(u),8000);
+  toast('PDF scaricato');
+}
 async function zipScarica(lista,nomeZip){
   if(!lista.length){toast('Niente da scaricare');return;}
-  if(lista.length===1&&!/\//.test(lista[0].path)){scaricaUrl(lista[0].f.url,lista[0].f.nome);toast('Scaricato');return;}
+  if(lista.length===1&&!/\//.test(lista[0].path)){await scaricaFile(lista[0].f);return;}
   const syn=document.getElementById('synced'); const setS=t=>{if(syn)syn.textContent=t;};
   setS('● preparo lo zip…');
   const ok=await caricaJSZip();
@@ -1644,7 +1656,11 @@ async function zipScarica(lista,nomeZip){
   for(const it of lista){
     try{
       const r=await fetch(it.f.url); if(!r.ok)throw new Error(r.status);
-      zip.file(it.path,await r.blob());
+      if(eHtml(it.f)){                                  // i documenti entrano nello zip già in PDF
+        const pdf=await htmlInPdf(await r.text());
+        if(pdf) zip.file(it.path.replace(/\.html?$/i,'')+'.pdf',pdf);
+        else    zip.file(it.path,await (await fetch(it.f.url)).blob());
+      } else zip.file(it.path,await r.blob());
     }catch(e){falliti.push(it.f.nome);}
     setS('● zip '+(++fatti)+'/'+lista.length);
   }
