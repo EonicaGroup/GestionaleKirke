@@ -1529,17 +1529,27 @@ function fileOrganizer(){
       <button class="btn btn-sm btn-ghost" onclick="createFolder()">+ Cartella</button>
       <button class="btn btn-sm btn-ghost" onclick="document.getElementById('fileInput').click()">Carica file</button>
       <button class="btn btn-sm btn-ghost" onclick="document.getElementById('folderInput').click()">Carica cartella</button>
-    </div>`;
+      <button class="btn btn-sm ${selMode?'btn-accent':'btn-ghost'}" onclick="selToggleMode()">${selMode?'✕ Annulla selezione':'☑︎ Seleziona'}</button>
+    </div>
+    ${selMode?`<div class="card" style="padding:11px 13px;margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <span style="flex:1;font-size:13px">${selCount()?selCount()+' selezionat'+(selCount()===1?'o':'i'):'Tocca i quadratini per scegliere'}</span>
+      <button class="btn btn-sm btn-ghost" onclick="selTutti()">Tutti</button>
+      <button class="btn btn-sm btn-accent" ${selCount()?'':'disabled style="opacity:.45"'} onclick="scaricaSelezione()">⬇︎ Scarica</button>
+    </div>`:''}`;
   subs.forEach(f=>{const n=S.file.filter(x=>x.cartella_id===f.id).length+S.cartella.filter(x=>x.parent_id===f.id).length;
     h+=`<div class="card" style="padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:11px">
       <div onclick="navFolder(${f.id})" style="flex:1;min-width:0;display:flex;align-items:center;gap:11px;cursor:pointer"><div class="avatar" style="border-radius:9px">📁</div><div style="min-width:0"><div style="font-size:14px;font-weight:500">${esc(f.nome)}</div><div class="dim" style="font-size:12px">${n} element${n===1?'o':'i'}</div></div></div>
-      <button class="btn btn-sm btn-ghost" onclick="openMove('cartella',${f.id})">Sposta</button><button class="btn btn-sm btn-ghost" style="color:#f87171" onclick="delFolder(${f.id})">×</button></div>`;});
+      ${selMode?`<span onclick="selC(${f.id})" style="flex:none;width:24px;height:24px;border-radius:7px;border:2px solid ${selCart[f.id]?'var(--accent)':'var(--border)'};background:${selCart[f.id]?'var(--accent)':'transparent'};color:#12100c;display:flex;align-items:center;justify-content:center;font-size:14px;cursor:pointer">${selCart[f.id]?'✓':''}</span>`
+        :`<button class="btn btn-sm btn-ghost" onclick="scaricaCartella(${f.id})" title="Scarica la cartella in uno zip">⬇︎</button>
+          <button class="btn btn-sm btn-ghost" onclick="openMove('cartella',${f.id})">Sposta</button><button class="btn btn-sm btn-ghost" style="color:#f87171" onclick="delFolder(${f.id})">×</button>`}</div>`;});
   files.forEach(f=>{h+=`<div class="card" style="padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:11px">
       <div class="avatar" style="border-radius:9px;font-size:10px">${esc(fileExt(f.nome))}</div>
       <div style="flex:1;min-width:0"><a href="javascript:void 0" onclick="apriFileId(${f.id});return false" style="font-size:14px;font-weight:500;color:var(--text);text-decoration:none">${esc(f.nome)}</a><div class="dim" style="font-size:12px">${fmtSize(f.size)}</div></div>
-      <button onclick="apriFileId(${f.id})" class="btn btn-sm btn-ghost">Apri</button>
-      <button class="btn btn-sm btn-ghost" onclick="openMove('file',${f.id})">Sposta</button>
-      <button class="btn btn-sm btn-ghost" style="color:#f87171" onclick="delFile(${f.id})">×</button></div>`;});
+      ${selMode?`<span onclick="selF(${f.id})" style="flex:none;width:24px;height:24px;border-radius:7px;border:2px solid ${selFile[f.id]?'var(--accent)':'var(--border)'};background:${selFile[f.id]?'var(--accent)':'transparent'};color:#12100c;display:flex;align-items:center;justify-content:center;font-size:14px;cursor:pointer">${selFile[f.id]?'✓':''}</span>`
+        :`<button onclick="apriFileId(${f.id})" class="btn btn-sm btn-ghost">Apri</button>
+          <button class="btn btn-sm btn-ghost" onclick="scaricaUrl('${f.url}','${esc(f.nome)}')" title="Scarica">⬇︎</button>
+          <button class="btn btn-sm btn-ghost" onclick="openMove('file',${f.id})">Sposta</button>
+          <button class="btn btn-sm btn-ghost" style="color:#f87171" onclick="delFile(${f.id})">×</button>`}</div>`;});
   if(!subs.length&&!files.length)h+=`<div class="card" style="padding:20px;color:var(--text2)">Cartella vuota. Crea una sottocartella o carica file/cartelle.</div>`;
   return h;
 }
@@ -1550,6 +1560,79 @@ async function uploadFolder(input){const fs=[...(input.files||[])];if(!fs.length
   async function ensurePath(parts,parent){let pid=parent,key=String(parent||'root');for(const name of parts){key+='/'+name;if(cache[key]!==undefined){pid=cache[key];continue;}const ins=await db.from('cartella').insert({nome:name,parent_id:pid}).select('id').single();pid=ins.data?ins.data.id:pid;cache[key]=pid;}return pid;}
   try{for(const f of fs){const rel=f.webkitRelativePath||f.name;const parts=rel.split('/');parts.pop();const leaf=await ensurePath(parts,currentFolder);await uploadOne(f,leaf);}}catch(e){alert('Errore upload cartella: '+(e.message||e));}
   if(syn)syn.textContent='● live';await reloadAll();render();}
+
+/* ============ DOWNLOAD DI FILE E CARTELLE ============
+   I file stanno su Supabase Storage con un indirizzo pubblico. Per scaricarne più
+   di uno il browser blocca i download in sequenza, quindi li impacchetto in uno zip
+   (JSZip caricato solo quando serve, non all'avvio). Le cartelle mantengono la loro
+   struttura dentro l'archivio. */
+let selFile={}, selCart={}, selMode=false;
+function selCount(){return Object.keys(selFile).filter(k=>selFile[k]).length+Object.keys(selCart).filter(k=>selCart[k]).length;}
+function selToggleMode(){selMode=!selMode;if(!selMode){selFile={};selCart={};}render();}
+function selF(id){selFile[id]=!selFile[id];render();}
+function selC(id){selCart[id]=!selCart[id];render();}
+function selTutti(){
+  const cur=currentFolder||null;
+  const fs=S.file.filter(f=>(f.cartella_id||null)===cur), cs=S.cartella.filter(f=>(f.parent_id||null)===cur);
+  const pieno=fs.every(f=>selFile[f.id])&&cs.every(c=>selCart[c.id])&&(fs.length+cs.length>0);
+  fs.forEach(f=>selFile[f.id]=!pieno); cs.forEach(c=>selCart[c.id]=!pieno); render();
+}
+// tutti i file dentro una cartella, ricorsivamente, col percorso relativo
+function cartellaContenuto(cid,prefix){
+  let out=[];
+  const c=S.cartella.find(x=>x.id===cid); const base=(prefix||'')+((c&&c.nome)||'cartella')+'/';
+  S.file.filter(f=>f.cartella_id===cid).forEach(f=>out.push({f:f,path:base+f.nome}));
+  S.cartella.filter(x=>x.parent_id===cid).forEach(x=>out=out.concat(cartellaContenuto(x.id,base)));
+  return out;
+}
+function caricaJSZip(){
+  if(window.JSZip)return Promise.resolve(true);
+  return new Promise(res=>{const sc=document.createElement('script');
+    sc.src='https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+    sc.onload=()=>res(!!window.JSZip); sc.onerror=()=>res(false); document.head.appendChild(sc);});
+}
+function scaricaUrl(url,nome){const a=document.createElement('a');a.href=url;a.download=nome||'';a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();a.remove();}
+async function zipScarica(lista,nomeZip){
+  if(!lista.length){toast('Niente da scaricare');return;}
+  if(lista.length===1&&!/\//.test(lista[0].path)){scaricaUrl(lista[0].f.url,lista[0].f.nome);toast('Scaricato');return;}
+  const syn=document.getElementById('synced'); const setS=t=>{if(syn)syn.textContent=t;};
+  setS('● preparo lo zip…');
+  const ok=await caricaJSZip();
+  if(!ok){ // niente rete per la libreria: ripiego sui download singoli
+    setS('● live');
+    if(!confirm('Non riesco a creare lo zip (serve internet).\n\nScarico i '+lista.length+' file uno per uno?'))return;
+    for(const it of lista){scaricaUrl(it.f.url,it.f.nome);await new Promise(r=>setTimeout(r,450));}
+    return;
+  }
+  const zip=new JSZip(); let fatti=0, falliti=[];
+  for(const it of lista){
+    try{
+      const r=await fetch(it.f.url); if(!r.ok)throw new Error(r.status);
+      zip.file(it.path,await r.blob());
+    }catch(e){falliti.push(it.f.nome);}
+    setS('● zip '+(++fatti)+'/'+lista.length);
+  }
+  const blob=await zip.generateAsync({type:'blob'});
+  const u=URL.createObjectURL(blob); scaricaUrl(u,nomeZip); setTimeout(()=>URL.revokeObjectURL(u),8000);
+  setS('● live');
+  toast(falliti.length?('Scaricati '+(lista.length-falliti.length)+' su '+lista.length):('Zip pronto · '+lista.length+' file'));
+}
+async function scaricaSelezione(){
+  let lista=[];
+  S.file.filter(f=>selFile[f.id]).forEach(f=>lista.push({f:f,path:f.nome}));
+  S.cartella.filter(c=>selCart[c.id]).forEach(c=>lista=lista.concat(cartellaContenuto(c.id,'')));
+  const n=selCount(), nome=(n===1&&Object.keys(selCart).filter(k=>selCart[k]).length===1)
+    ? ((S.cartella.find(c=>c.id===+Object.keys(selCart).filter(k=>selCart[k])[0])||{}).nome||'cartella')+'.zip'
+    : 'documenti-kirke.zip';
+  await zipScarica(lista,nome);
+}
+async function scaricaCartella(cid){
+  const c=S.cartella.find(x=>x.id===cid); if(!c)return;
+  const lista=cartellaContenuto(cid,'');
+  if(!lista.length){toast('La cartella è vuota');return;}
+  await zipScarica(lista,(c.nome||'cartella').replace(/[^\w\-. ]/g,'_')+'.zip');
+}
+
 async function delFolder(id){if(!confirm('Eliminare la cartella e tutto il contenuto?'))return;const ids=[];const collect=(fid)=>{ids.push(fid);S.cartella.filter(c=>c.parent_id===fid).forEach(c=>collect(c.id));};collect(id);const paths=S.file.filter(f=>ids.includes(f.cartella_id)).map(f=>f.path).filter(Boolean);if(paths.length)await db.storage.from('files').remove(paths);if(currentFolder&&ids.includes(currentFolder))currentFolder=(S.cartella.find(c=>c.id===id)||{}).parent_id||null;await db.from('cartella').delete().eq('id',id);await reloadAll();render();}
 function descendants(fid){const out=[fid];S.cartella.filter(c=>c.parent_id===fid).forEach(c=>out.push(...descendants(c.id)));return out;}
 function folderTree(exclude){const list=[];const walk=(parent,depth)=>{S.cartella.filter(c=>(c.parent_id||null)===(parent||null)).sort((a,b)=>(a.nome||'').localeCompare(b.nome||'')).forEach(c=>{if(exclude&&exclude.includes(c.id))return;list.push({id:c.id,nome:c.nome,depth:depth});walk(c.id,depth+1);});};walk(null,0);return list;}
