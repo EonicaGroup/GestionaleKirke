@@ -5142,7 +5142,7 @@ function gPassaggi(){
 /* --- le tre zone di interesse: cosa arriva, quando, e cosa succede al tocco ---
    GPUSH_NOVITA: alza questa sigla quando cambi le zone. Chi ha già attivato
    rivede il popup una volta sola, così le novità non le scopre per caso. */
-const GPUSH_NOVITA='zone-v1';
+const GPUSH_NOVITA='zone-v1b';   // v1 bruciata da un bug: marcava "vista" prima di mostrarla
 const GPUSH_ZONE=[
   {ico:'🍾',tit:'Magazzino',sot:'La merce che non è ancora scesa',stato:'attiva',
    testo:'La serata è chiusa a consuntivo ma le bottiglie risultano ancora tutte in magazzino. Finché non conti, quella serata ha un margine finto.',
@@ -5278,9 +5278,11 @@ async function gPushBoot(){
   }
   if(salta||MAGONLY)return;
   if(gPushAttivo()){
+    // leggo PRIMA di rinfrescare: gPushIscrivi marca la novità come vista e mi spegnerebbe il popup
+    const daVedere = localStorage.getItem('cc_push_novita')!==GPUSH_NOVITA;
     try{await gPushIscrivi();}catch(e){}                              // rinfresca la subscription
-    // chi ha già attivato non deve perdersi le novità: la novità gliela mostro una volta sola
-    if(localStorage.getItem('cc_push_novita')!==GPUSH_NOVITA){ setTimeout(()=>gPushPopup(1),1200); }
+    // chi ha già attivato non deve perdersi le novità: gliela mostro una volta sola
+    if(daVedere){ localStorage.removeItem('cc_push_novita'); setTimeout(()=>gPushPopup(1),1200); }
     return;
   }
   const rinvio=+(localStorage.getItem('cc_push_rinvio')||0);
