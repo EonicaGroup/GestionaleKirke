@@ -1618,6 +1618,32 @@ async function scaricaFile(f){
     scaricaUrl(f.url,f.nome);
   }
 }
+/* Nello zip i documenti devono entrare in PDF: non posso aprire dodici finestre di
+   stampa. La conversione gira dentro un iframe isolato, con la libreria caricata lì:
+   se la si chiama dalla pagina, html2canvas copia il CSS del gestionale (color-mix)
+   e si ferma su "unsupported color function". */
+async function htmlInPdf(html){
+  const fr=document.createElement('iframe');
+  fr.setAttribute('aria-hidden','true');
+  fr.style.cssText='position:fixed;top:0;left:0;width:794px;height:1123px;opacity:.01;pointer-events:none;border:0;z-index:-1';
+  document.body.appendChild(fr);
+  const pulisci=()=>{try{fr.remove();}catch(e){}};
+  try{
+    const d=fr.contentDocument; d.open(); d.write(html); d.close();
+    await new Promise(res=>{const sc=d.createElement('script');
+      sc.src='https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+      sc.onload=res; sc.onerror=res; d.head.appendChild(sc); setTimeout(res,9000);});
+    await new Promise(r=>setTimeout(r,300));
+    const W=fr.contentWindow;
+    if(!W.html2pdf){ pulisci(); return null; }
+    // margine come numero: un array creato qui fuori non è valido dentro l'iframe
+    const blob=await W.html2pdf().set({margin:10,
+      html2canvas:{scale:2,useCORS:true,backgroundColor:'#ffffff'},
+      jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},
+      pagebreak:{mode:['css','legacy']}}).from(d.body).outputPdf('blob');
+    pulisci(); return blob;
+  }catch(e){ pulisci(); return null; }
+}
 async function zipScarica(lista,nomeZip){
   if(!lista.length){toast('Niente da scaricare');return;}
   if(lista.length===1&&!/\//.test(lista[0].path)){await scaricaFile(lista[0].f);return;}
@@ -1630,18 +1656,25 @@ async function zipScarica(lista,nomeZip){
     for(const it of lista){scaricaUrl(it.f.url,it.f.nome);await new Promise(r=>setTimeout(r,450));}
     return;
   }
-  const zip=new JSZip(); let fatti=0, falliti=[];
+  const zip=new JSZip(); let fatti=0, falliti=[], nonConvertiti=0;
   for(const it of lista){
     try{
       const r=await fetch(it.f.url); if(!r.ok)throw new Error(r.status);
-      zip.file(it.path,await r.blob());
+      if(eHtml(it.f)){                                   // i documenti entrano già in PDF
+        const html=new TextDecoder('utf-8').decode(await r.arrayBuffer());
+        const pdf=await htmlInPdf(html);
+        if(pdf) zip.file(it.path.replace(/\.html?$/i,'')+'.pdf',pdf);
+        else  { zip.file(it.path,new Blob([html],{type:'text/html;charset=utf-8'})); nonConvertiti++; }
+      } else zip.file(it.path,await r.blob());
     }catch(e){falliti.push(it.f.nome);}
     setS('● zip '+(++fatti)+'/'+lista.length);
   }
   const blob=await zip.generateAsync({type:'blob'});
   const u=URL.createObjectURL(blob); scaricaUrl(u,nomeZip); setTimeout(()=>URL.revokeObjectURL(u),8000);
   setS('● live');
-  toast(falliti.length?('Scaricati '+(lista.length-falliti.length)+' su '+lista.length):('Zip pronto · '+lista.length+' file'));
+  toast(falliti.length?('Scaricati '+(lista.length-falliti.length)+' su '+lista.length)
+        :(nonConvertiti?('Zip pronto · '+nonConvertiti+' document'+(nonConvertiti===1?'o rimasto':'i rimasti')+' in HTML')
+                       :('Zip pronto · '+lista.length+' file')));
 }
 async function scaricaSelezione(){
   let lista=[];
