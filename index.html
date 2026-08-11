@@ -5093,6 +5093,7 @@ async function gPushIscrivi(){
   const r=await db.rpc('gest_push_subscribe',{secret:GPUSH_SECRET,p_endpoint:sub.endpoint,p_p256dh:j.keys.p256dh,p_auth:j.keys.auth,p_label:(navigator.userAgent||'').slice(0,60)});
   if(r.error)throw new Error(r.error.message);
   localStorage.setItem('cc_push_on','1');
+  localStorage.setItem('cc_push_novita',GPUSH_NOVITA);   // ha appena visto le zone, non glielo ripropongo
   localStorage.removeItem('cc_push_rinvio');
   return true;
 }
@@ -5138,7 +5139,10 @@ function gPassaggi(){
        [std,'Apri <b>KIRKE</b> dall\'icona sulla Home'],
        [false,'Tocca <b>Attiva notifiche</b> qui sotto e poi <b>Consenti</b>']];
 }
-/* --- le tre zone di interesse: cosa arriva, quando, e cosa succede al tocco --- */
+/* --- le tre zone di interesse: cosa arriva, quando, e cosa succede al tocco ---
+   GPUSH_NOVITA: alza questa sigla quando cambi le zone. Chi ha già attivato
+   rivede il popup una volta sola, così le novità non le scopre per caso. */
+const GPUSH_NOVITA='zone-v1';
 const GPUSH_ZONE=[
   {ico:'🍾',tit:'Magazzino',sot:'La merce che non è ancora scesa',stato:'attiva',
    testo:'La serata è chiusa a consuntivo ma le bottiglie risultano ancora tutte in magazzino. Finché non conti, quella serata ha un margine finto.',
@@ -5177,21 +5181,26 @@ let GPUSH_STEP=1;
 function gPushPopup(step){
   GPUSH_STEP=step||1;
   const pronto=gStandalone()||!gIsIOS();
+  const gia=gPushAttivo();                 // già attivo: è un annuncio, non un'installazione
   const head=`<div style="margin:-4px -2px 16px;padding:20px 18px 17px;border-radius:16px;background:linear-gradient(150deg,${hexToRgba(PREF.accent,.28)},${hexToRgba(PREF.accent,.05)} 65%,transparent);text-align:center">
+    ${gia?`<div style="display:inline-block;font-size:9.5px;font-weight:700;letter-spacing:.1em;padding:3px 9px;border-radius:20px;background:var(--accent);color:#12100c;margin-bottom:11px">NOVITÀ</div><br>`:''}
     <div style="font-size:34px;line-height:1;margin-bottom:9px">🔔</div>
-    <div class="serif" style="font-size:21px;line-height:1.2;margin-bottom:6px">Il gestionale ti scrive lui</div>
-    <div class="dim" style="font-size:12.5px;line-height:1.5;max-width:270px;margin:0 auto">Non devi più ricordarti niente: quando qualcosa resta a metà, te lo dice il telefono.</div>
-    <div style="display:flex;gap:5px;justify-content:center;margin-top:14px">
+    <div class="serif" style="font-size:21px;line-height:1.2;margin-bottom:6px">${gia?'Le notifiche sanno fare di più':'Il gestionale ti scrive lui'}</div>
+    <div class="dim" style="font-size:12.5px;line-height:1.5;max-width:270px;margin:0 auto">${gia?'Sul tuo telefono sono già accese. Ecco cosa arriva adesso e cosa sta per arrivare.':'Non devi più ricordarti niente: quando qualcosa resta a metà, te lo dice il telefono.'}</div>
+    ${gia?'':`<div style="display:flex;gap:5px;justify-content:center;margin-top:14px">
       ${[1,2].map(i=>`<span style="width:${GPUSH_STEP===i?'18px':'6px'};height:6px;border-radius:3px;background:${GPUSH_STEP===i?'var(--accent)':'var(--border)'};transition:width .2s"></span>`).join('')}
-    </div></div>`;
+    </div>`}</div>`;
 
   let corpo;
   if(GPUSH_STEP===1){
     corpo=`<div class="label" style="margin-bottom:10px">Cosa ti arriva · tre zone</div>
       <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px">${GPUSH_ZONE.map(gZonaCard).join('')}</div>
       <div class="dim" style="font-size:11.5px;line-height:1.5;text-align:center;margin-bottom:14px">Niente raffiche: una notifica per volta, e sempre con dentro cosa fare.</div>
-      <button class="btn btn-accent" style="width:100%" onclick="gPushPopup(2)">Va bene, come si attiva? →</button>
-      <button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="gPushRinvia()">Non ora</button>`;
+      ${gia
+        ? `<button class="btn btn-accent" style="width:100%" onclick="gPushVisto()">Perfetto, ho capito</button>
+           <div class="dim" style="font-size:11.5px;line-height:1.5;text-align:center;margin-top:10px">Non devi rifare niente: quando accendo Consuntivi e Team ti arrivano da sole.</div>`
+        : `<button class="btn btn-accent" style="width:100%" onclick="gPushPopup(2)">Va bene, come si attiva? →</button>
+           <button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="gPushRinvia()">Non ora</button>`}`;
   } else {
     const P=gPassaggi(), fatti=P.filter(p=>p[0]).length;
     corpo=`<div class="label" style="margin-bottom:4px">Come si attiva · ${gIsIOS()?'iPhone':'Android'}</div>
@@ -5216,6 +5225,7 @@ function gPushRinvia(){
   localStorage.setItem('cc_push_rinvio',String(Date.now()+7*24*3600*1000));
   hideModal();
 }
+function gPushVisto(){ localStorage.setItem('cc_push_novita',GPUSH_NOVITA); hideModal(); }
 function gPushCard(){
   const on=gPushAttivo();
   const perm=('Notification' in window)?Notification.permission:'unsupported';
@@ -5267,7 +5277,12 @@ async function gPushBoot(){
     });
   }
   if(salta||MAGONLY)return;
-  if(gPushAttivo()){ try{await gPushIscrivi();}catch(e){} return; }   // rinfresca la subscription
+  if(gPushAttivo()){
+    try{await gPushIscrivi();}catch(e){}                              // rinfresca la subscription
+    // chi ha già attivato non deve perdersi le novità: la novità gliela mostro una volta sola
+    if(localStorage.getItem('cc_push_novita')!==GPUSH_NOVITA){ setTimeout(()=>gPushPopup(1),1200); }
+    return;
+  }
   const rinvio=+(localStorage.getItem('cc_push_rinvio')||0);
   if(rinvio&&Date.now()<rinvio)return;
   if(!('Notification' in window)||Notification.permission==='denied')return;
