@@ -949,25 +949,68 @@ async function condividiDoc(){
 }
 window.addEventListener('popstate',()=>{const ov=document.getElementById('docov');if(ov){ov.remove();document.body.style.overflow='';}});
 
+
+/* ---- I consuntivi si archiviano in PDF, non in HTML ----
+   Un .html archiviato lo apri solo dal browser e non lo mandi a nessuno; il PDF si
+   allega, si stampa e si legge ovunque. La libreria si carica solo al momento del
+   salvataggio. Se manca la rete resta l'HTML: meglio un formato scomodo che niente. */
+async function htmlInPdf(html){
+  // La conversione gira DENTRO un iframe isolato, con la libreria caricata lì dentro.
+  // Se la si chiama dalla pagina principale, html2canvas copia i fogli di stile del
+  // gestionale — che usano color-mix() — e si ferma su "unsupported color function".
+  const fr=document.createElement('iframe');
+  fr.setAttribute('aria-hidden','true');
+  fr.style.cssText='position:fixed;top:0;left:0;width:794px;height:1123px;opacity:.01;pointer-events:none;border:0;z-index:-1';
+  document.body.appendChild(fr);
+  const pulisci=()=>{try{fr.remove();}catch(e){}};
+  try{
+    const d=fr.contentDocument;
+    d.open(); d.write(html); d.close();
+    await new Promise(res=>{
+      const sc=d.createElement('script');
+      sc.src='https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+      sc.onload=res; sc.onerror=res; d.head.appendChild(sc);
+      setTimeout(res,9000);                       // non resto appeso se la rete non risponde
+    });
+    await new Promise(r=>setTimeout(r,350));      // stili e caratteri applicati
+    const W=fr.contentWindow;
+    if(!W.html2pdf){ pulisci(); return null; }
+    // margine come numero singolo: un array creato qui fuori non è valido dentro l'iframe
+    const blob=await W.html2pdf().set({margin:10,
+      html2canvas:{scale:2,useCORS:true,backgroundColor:'#ffffff'},
+      jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},
+      pagebreak:{mode:['css','legacy']}}).from(d.body).outputPdf('blob');
+    pulisci(); return blob;
+  }catch(e){ pulisci(); return null; }
+}
+/* archivia il documento in Documenti: prova il PDF, ripiega sull'HTML */
+async function archiviaDoc(html,baseNome,cartella,pathBase,vecchiRegex){
+  const cid=await cartellaId(cartella);
+  let blob=await htmlInPdf(html), ext='pdf', mime='application/pdf';
+  if(!blob){ blob=new Blob([html],{type:'text/html'}); ext='html'; mime='text/html'; }
+  const nome=baseNome+'.'+ext;
+  const path=pathBase+'_'+Date.now()+'.'+ext;
+  const up=await db.storage.from('files').upload(path,blob,{contentType:mime});
+  if(up.error)return null;
+  const pub=db.storage.from('files').getPublicUrl(path);
+  // tolgo le versioni precedenti dello stesso documento, in qualunque formato
+  for(const f of (S.file||[]).filter(f=>f.cartella_id===cid&&vecchiRegex.test(f.nome||''))){
+    if(f.path)await db.storage.from('files').remove([f.path]);
+    await db.from('file').delete().eq('id',f.id);
+  }
+  await db.from('file').insert({nome:nome,path:path,url:pub.data.publicUrl,size:blob.size,cartella_id:cid});
+  await reloadAll();
+  return {nome:nome,ext:ext};
+}
+
 async function generaConsuntivoStagione(apri){
   const html=consuntivoStagioneHtml();
-  const nome='Consuntivo stagione — aggiornato al '+fmtShort(today())+'.html';
-  try{
-    const cid=await cartellaId('Consuntivi Stagione');
-    const blob=new Blob([html],{type:'text/html'});
-    const path='consuntivi-stagione/'+today()+'_'+Date.now()+'.html';
-    const up=await db.storage.from('files').upload(path,blob,{contentType:'text/html'});
-    if(!up.error){
-      const pub=db.storage.from('files').getPublicUrl(path);
-      // tengo una sola versione corrente: sostituisco la precedente
-      for(const f of (S.file||[]).filter(f=>f.cartella_id===cid&&/^Consuntivo stagione/.test(f.nome||''))){
-        if(f.path)await db.storage.from('files').remove([f.path]);
-        await db.from('file').delete().eq('id',f.id);
-      }
-      await db.from('file').insert({nome:nome,path:path,url:pub.data.publicUrl,size:blob.size,cartella_id:cid});
-      await reloadAll();
-    }
+  const base='Consuntivo stagione — aggiornato al '+fmtShort(today());
+  const syn=document.getElementById('synced'); if(syn)syn.textContent='● creo il PDF…';
+  try{ const r=await archiviaDoc(html,base,'Consuntivi Stagione','consuntivi-stagione/'+today(),/^Consuntivo stagione/);
+       if(r&&r.ext==='html')toast('Salvato in HTML: il PDF non si è potuto creare');
   }catch(e){}
+  if(syn)syn.textContent='● live';
   if(apri)apriDoc(html,'Consuntivo di stagione — '+fmtShort(today()));
   return html;
 }
@@ -976,20 +1019,13 @@ async function generaConsuntivoStagione(apri){
 async function generaConsuntivo(sid,apri){
   const s=S.serate.find(x=>x.id===sid); if(!s)return null;
   const html=consuntivoHtml(s);
-  const nome='Consuntivo '+fmtShort(s.data)+'.html';
-  try{
-    const cid=await cartellaId('Consuntivi serate');
-    const blob=new Blob([html],{type:'text/html'});
-    const path='consuntivi/'+s.data+'_'+Date.now()+'.html';
-    const up=await db.storage.from('files').upload(path,blob,{contentType:'text/html'});
-    if(!up.error){
-      const pub=db.storage.from('files').getPublicUrl(path);
-      const gia=S.file.find(f=>f.nome===nome);
-      if(gia){ if(gia.path)await db.storage.from('files').remove([gia.path]); await db.from('file').delete().eq('id',gia.id); }
-      await db.from('file').insert({nome:nome,path:path,url:pub.data.publicUrl,size:blob.size,cartella_id:cid});
-      await reloadAll();
-    }
+  const base='Consuntivo '+fmtShort(s.data);
+  const syn=document.getElementById('synced'); if(syn)syn.textContent='● creo il PDF…';
+  try{ const r=await archiviaDoc(html,base,'Consuntivi serate','consuntivi/'+s.data,
+         new RegExp('^'+base.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\.(pdf|html)$'));
+       if(r&&r.ext==='html')toast('Salvato in HTML: il PDF non si è potuto creare');
   }catch(e){}
+  if(syn)syn.textContent='● live';
   if(apri)apriDoc(html,'Consuntivo '+fmtShort(s.data)+(s.nome?' · '+s.nome:''));
   return html;
 }
