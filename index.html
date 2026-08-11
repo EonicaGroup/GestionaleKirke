@@ -4521,11 +4521,11 @@ function renderCassa(){
     const resid=t.totale-naC+naE-eS.personale-eS.cogs-eS.margine;
     h+=`<div class="card" style="padding:16px;margin-bottom:12px">
       <div class="label" style="margin-bottom:4px">Riconciliazione cassa ↔ margine</div>
-      <div class="dim" style="font-size:12px;margin-bottom:10px">Perché la liquidità non coincide col margine di stagione.</div>
+      <div class="dim" style="font-size:12px;line-height:1.5;margin-bottom:10px">Perché la liquidità non coincide col margine di stagione. Non sono errori: sono le voci che pesano sul margine senza passare dalla cassa, o viceversa.</div>
       <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px"><span class="muted">Liquidità in cassa</span><b>${eur(t.totale)}</b></div>
       ${naC>0?`<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px"><span style="color:var(--accent)">− Spese senza metodo di pagamento <span style="opacity:.7">· ${da.costi.length} da assegnare</span></span><span style="color:var(--accent)">${eur(naC)}</span></div>`:''}
       ${naE>0?`<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px"><span style="color:var(--accent)">+ Entrate extra senza metodo <span style="opacity:.7">· ${da.extra.length} da assegnare</span></span><span style="color:var(--accent)">${eur(naE)}</span></div>`:''}
-      <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px"><span class="dim">− Personale in turno <span style="opacity:.7">· mai registrato come uscita</span></span><span>${eur(eS.personale)}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px"><span class="dim">− Personale in turno <span style="opacity:.7">· pagato, ma non registrato in cassa</span></span><span>${eur(eS.personale)}</span></div>
       <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px"><span class="dim">− Costo merce consumata <span style="opacity:.7">· già pagata con gli acquisti</span></span><span>${eur(eS.cogs)}</span></div>
       ${Math.abs(resid)>1?`<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px"><span style="color:#f87171">− Differenza non spiegata</span><span style="color:#f87171">${eur(resid)}</span></div>`:''}
       <div style="display:flex;justify-content:space-between;padding:10px 0 0;margin-top:8px;border-top:1px solid var(--border);align-items:center"><span class="serif" style="font-size:16px">Margine di stagione</span><span class="serif" style="font-size:20px;color:${eS.margine>=0?'#4bb573':'#f87171'}">${eur(eS.margine)}</span></div>
