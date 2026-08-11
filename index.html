@@ -4297,7 +4297,9 @@ function cassaVoce(r){
   if(r.vc)return r.vc;                       // riga già etichettata alla fonte
   const test=t=>{t=(t||'').toLowerCase();
     if(/securit|sicurezz|buttaf|steward|vigilanz/.test(t))return 'Sicurezza';
-    if(/personal|accoglienz|hostess|staff|cameri|artist|\bdj\b|barman|barist|fotograf/.test(t))return 'Personale';
+    if(/artist|\bdj\b|deejay|live|band|cantant|music/.test(t))return 'Artisti / DJ';
+    if(/fotograf|\bfoto\b|videomaker|\bvideo\b|reel|riprese/.test(t))return 'Fotografo';
+    if(/personal|accoglienz|hostess|staff|cameri|barman|barist|pr\b/.test(t))return 'Personale';
     if(/merce|food|fornit|bevand|acquist|magazzin|bibit|ghiacc/.test(t))return 'Merce';
     return null;};
   return test(r.voce)||test(r.cat)||'Altro'; // il nome della voce batte la categoria
