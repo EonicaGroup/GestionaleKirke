@@ -53,7 +53,29 @@ body{
   font-family:'Manrope',system-ui,sans-serif; background:var(--bg); color:var(--text);
   font-size:15px; line-height:1.5; letter-spacing:-.01em; -webkit-font-smoothing:antialiased;
   transition:background .4s,color .4s; overflow-x:hidden;
+  -webkit-tap-highlight-color:transparent; text-size-adjust:100%; -webkit-text-size-adjust:100%;
 }
+/* ---- FLUIDITÀ SU TELEFONO ----
+   Il vetro smerigliato (backdrop-filter) su barra in alto e navigazione in basso
+   costringe iOS a ricomporre la sfocatura a ogni fotogramma dello scroll: è la causa
+   principale degli scatti. Su telefono lo tolgo e uso un fondo pieno, che è
+   indistinguibile all'occhio ma scorre liscio. Su desktop il vetro resta. */
+@media (pointer:coarse){
+  header.top{backdrop-filter:none!important;-webkit-backdrop-filter:none!important;background:var(--bg)!important}
+  #nav{backdrop-filter:none!important;-webkit-backdrop-filter:none!important;background:var(--bg2)!important}
+  #modal{backdrop-filter:none!important;-webkit-backdrop-filter:none!important;background:rgba(4,4,8,.72)!important}
+  body::before{display:none}                                   /* alone di sfondo: costa e non si vede */
+  .card{transition:none}                                       /* decine di card in pagina, ognuna animata */
+  .btn,.chip,.cbtn,.swatch{transition:transform .12s ease-out}
+}
+/* niente attesa di 300ms sul tocco e niente selezione accidentale trascinando */
+button,.btn,.chip,.cbtn,.tabbtn,.swatch,[onclick]{touch-action:manipulation;-webkit-user-select:none;user-select:none}
+input,textarea,select{-webkit-user-select:auto;user-select:auto}
+#view{overscroll-behavior-y:contain}
+/* feedback immediato al tocco: il tasto risponde prima ancora che parta l'azione */
+.btn:active,.cbtn:active,.chip:active{transform:scale(.965)}
+.card:active{transform:none}
+@media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 body::before{content:'';position:fixed;inset:0;background:var(--glowbg);pointer-events:none;z-index:0}
 body.locked{overflow:hidden}
 ::-webkit-scrollbar{width:0;height:0}
@@ -246,7 +268,13 @@ const SB_URL="https://crumhchnzebiqmbaivjt.supabase.co";
 const SB_KEY="sb_publishable_35eACVa3geH7s9XRde0GPg_Q4QMedHz";
 const APP_PWD="GIANMA";
 let db=null;
-function initDb(){ if(db)return true; if(typeof supabase==='undefined'||!supabase.createClient)return false; db=supabase.createClient(SB_URL,SB_KEY); return true; }
+function initDb(){ if(db)return true; if(typeof supabase==='undefined'||!supabase.createClient)return false;
+  db=supabase.createClient(SB_URL,SB_KEY);
+  // marco ogni scrittura che parte da questo telefono: il realtime deve ignorarne l'eco
+  const _from=db.from.bind(db), _rpc=db.rpc.bind(db);
+  db.from=t=>{const q=_from(t);['insert','update','upsert','delete'].forEach(m=>{const f=q[m].bind(q);q[m]=(...a)=>{mioTocco();return f(...a);};});return q;};
+  db.rpc=(...a)=>{mioTocco();return _rpc(...a);};
+  return true; }
 
 // ================= THEME / PREFS =================
 const PREF={
@@ -335,7 +363,16 @@ async function reloadMag(){
   S.assegn=[]; S.personale=[]; S.costiSerata=[]; S.incassiExtra=[]; S.partnership=[]; S.tipRuoli=[]; S.ruoli=[];
   S.todo=[]; S.note=[]; S.file=[]; S.cartella=[]; S.allestimento=[]; S.allestLink=[]; S.allestPos=[]; S.todoSub=[]; S.cassaMov=[];
 }
+/* Se più azioni chiedono i dati nello stesso momento — e succede di continuo, perché
+   quasi ogni salvataggio finisce con un reloadAll — facevano 25 query a testa.
+   Ora chi arriva mentre una lettura è già in volo si accoda a quella. */
+let _reloadInVolo=null;
 async function reloadAll(){
+  if(_reloadInVolo) return _reloadInVolo;
+  _reloadInVolo=_reloadAll().finally(()=>{_reloadInVolo=null;});
+  return _reloadInVolo;
+}
+async function _reloadAll(){
   if(MAGONLY) return reloadMag();
   const [tip,ruo,tr,per,ser,ass,con,cfgr,arts,movs,pro,ric,ven,cos,inc,tdo,nte,fls,crt,alle,alk,prt,tds,apz,csm]=await Promise.all([
     db.from('tipologie').select('*').order('ordine'),
@@ -376,14 +413,42 @@ async function reloadAll(){
   const cat=await db.from('mag_categorie').select('*').order('ordine');
   S.mag_categorie=(cat&&cat.data)||[];
 }
+/* ---- REALTIME ----
+   Prima erano 25 canali, e ognuno a ogni evento faceva reloadAll (25 query) + render
+   completo. Ogni tocco che scriveva sul database tornava indietro come eco e ridisegnava
+   la pagina sotto le dita: da lì gli scatti e i campi che perdevano il valore.
+   Ora: un canale solo, gli eventi si accorpano, e il ridisegno aspetta che tu abbia finito. */
+let _rtT=null, _rtDirty=false;
+function rtSegnala(){
+  const s=document.getElementById('synced');
+  if(s){s.textContent='● aggiornato';clearTimeout(rtSegnala._t);rtSegnala._t=setTimeout(()=>{s.textContent='● live';},1400);}
+}
+// sto scrivendo io: l'eco della mia stessa modifica non deve ridisegnare niente
+let _ioScrivo=0;
+function mioTocco(){_ioScrivo=Date.now();}
+function occupato(){
+  if(!document.getElementById('modal').classList.contains('hidden'))return true;   // modale aperta
+  const a=document.activeElement;
+  return !!(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA'||a.tagName==='SELECT'));
+}
+async function rtApplica(){
+  if(occupato()){ _rtDirty=true; return; }                 // riprovo quando l'utente ha finito
+  _rtDirty=false;
+  await reloadAll(); render(); rtSegnala();
+}
+function rtPing(){
+  if(Date.now()-_ioScrivo<2500){ rtSegnala(); return; }    // è l'eco di una mia scrittura
+  clearTimeout(_rtT); _rtT=setTimeout(rtApplica,700);      // una raffica di eventi = un solo ridisegno
+}
 function subscribe(){
-  if(MAGONLY){['articoli','movimenti','prodotti','ricette','vendite'].forEach(t=>db.channel('rt_'+t).on('postgres_changes',{event:'*',schema:'public',table:t},async()=>{await reloadAll();render();const s=document.getElementById('synced');if(s){s.textContent='● aggiornato';setTimeout(()=>s.textContent='● live',1400);}}).subscribe());return;}
-  ['tipologie','ruoli','tipologia_ruoli','personale','serate','serata_personale','contatti','config','articoli','movimenti','prodotti','ricette','vendite','costi_serata','incassi_extra','todo','note','file','cartella','allestimento','allestimento_link','partnership','todo_sub','allestimento_pos','cassa_mov'].forEach(t=>{
-    db.channel('rt_'+t).on('postgres_changes',{event:'*',schema:'public',table:t},async()=>{
-      await reloadAll(); render();
-      const s=document.getElementById('synced'); s.textContent='● aggiornato'; setTimeout(()=>s.textContent='● live',1400);
-    }).subscribe();
-  });
+  const tab = MAGONLY
+    ? ['articoli','movimenti','prodotti','ricette','vendite']
+    : ['tipologie','ruoli','tipologia_ruoli','personale','serate','serata_personale','contatti','config','articoli','movimenti','prodotti','ricette','vendite','costi_serata','incassi_extra','todo','note','file','cartella','allestimento','allestimento_link','partnership','todo_sub','allestimento_pos','cassa_mov'];
+  const ch=db.channel('rt_all');
+  tab.forEach(t=>ch.on('postgres_changes',{event:'*',schema:'public',table:t},rtPing));
+  ch.subscribe();
+  // appena l'utente molla il campo o chiude la modale, applico quello che è rimasto in sospeso
+  document.addEventListener('focusout',()=>{ if(_rtDirty)setTimeout(()=>{if(_rtDirty&&!occupato())rtApplica();},350); });
 }
 
 // ================= HELPERS =================
@@ -419,8 +484,17 @@ function defTip(){return +cfg('tipologia_default', S.tipologie[0]&&S.tipologie[0
 // I giorni di apertura decidono cosa è "scoperto", NON cosa si può aprire:
 // un giorno fuori calendario che ha già una serata resta sempre visibile e conteggiato.
 function seasonDays(){const s=cfg('season_start',''),e=cfg('season_end','');if(!s||!e)return [];const gd=operDays(),out=[];let d=new Date(s+'T00:00:00'),end=new Date(e+'T00:00:00'),n=0;while(d<=end&&n++<500){const ds=isoD(d);const ser=S.serate.find(x=>x.data===ds)||null;if(gd.includes(d.getDay())||ser){out.push({date:ds,serata:ser,extra:!gd.includes(d.getDay())});}d.setDate(d.getDate()+1);}return out;}
-async function setCfg(k,v){await db.from('config').upsert({chiave:k,valore:String(v)});await reloadAll();render();}
-function toggleDay(n){let g=operDays();g=g.includes(n)?g.filter(x=>x!==n):g.concat(n);setCfg('giorni_operativi',g.join(','));}
+/* Il campo che hai appena compilato è già giusto a video: aggiorno lo stato in memoria
+   e non ridisegno niente. Prima faceva 25 query e riscriveva la pagina a ogni carattere
+   confermato, ed è il motivo per cui i box di Setup saltavano. */
+async function setCfg(k,v,ridisegna){
+  S.config[k]=String(v);
+  const r=await db.from('config').upsert({chiave:k,valore:String(v)});
+  if(r&&r.error){toast('Non salvato: '+r.error.message);return;}
+  toast('Salvato');
+  if(ridisegna)render();
+}
+function toggleDay(n){let g=operDays();g=g.includes(n)?g.filter(x=>x!==n):g.concat(n);setCfg('giorni_operativi',g.join(','),true);}
 // I giorni già passati e rimasti scoperti non sono più "da colmare": non si torna indietro.
 // Restano nel conteggio solo i giorni futuri e quelli passati che una serata ce l'hanno avuta.
 function seasonDaysAttivi(){const t=today();return seasonDays().filter(x=>x.serata||x.date>=t);}
@@ -441,6 +515,12 @@ function fabAction(){ if(TAB==='serate'){ if(serateMode==='todo')openTodo(); els
 let _lastTab=null;
 function render(){
   if(MAGONLY&&TAB!=='calend')TAB='magazzino';
+  // se stai scrivendo in un campo di questa schermata, ridisegnare significherebbe
+  // cancellarti sotto le dita quello che hai appena battuto: aspetto che tu abbia finito
+  const _a=document.activeElement;
+  if(_a&&_a.closest&&_a.closest('#view')&&(_a.tagName==='INPUT'||_a.tagName==='TEXTAREA')){
+    clearTimeout(render._att); render._att=setTimeout(render,400); return;
+  }
   const keep=(_lastTab===TAB), y=keep?window.scrollY:0;
   // il calendario è in sola lettura: niente bottone di creazione
   const _fab=document.getElementById('fab');
@@ -3417,7 +3497,7 @@ async function saveModulo(id,x,y){
   await setCfg('mappa_moduli',JSON.stringify(ov));
   toast('Modulo spostato · condiviso col team');
 }
-async function resetModuli(){if(!confirm('Riportare tutti i moduli al layout originale?'))return;await setCfg('mappa_moduli','{}');toast('Layout originale ripristinato');}
+async function resetModuli(){if(!confirm('Riportare tutti i moduli al layout originale?'))return;await setCfg('mappa_moduli','{}',true);toast('Layout originale ripristinato');}
 function zonaAt(x,y){
   const M=MOD();
   const hit=(m,d)=>Math.abs(x-m.x)<=d[0]&&Math.abs(y-m.y)<=d[1];
@@ -4956,7 +5036,7 @@ function renderSetup(){
   <div class="label" style="margin:20px 0 10px">Dimensionamento &amp; cabane · condiviso col team</div>
   <div class="card" style="padding:16px;margin-bottom:14px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div><div style="font-size:14px">Tetto persone / serata</div><div class="dim" style="font-size:12px">oltre cui servono una tantum</div></div>
-    <input type="number" class="input" style="width:78px;text-align:center" value="${cfg('cap','10')}" onchange="setCfg('cap',this.value)"></div>
+    <input type="number" class="input" style="width:78px;text-align:center" value="${cfg('cap','10')}" onchange="setCfg('cap',this.value,true)"></div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;border-top:1px solid var(--border);padding-top:14px"><div style="font-size:14px">Cabane totali</div>
     <input type="number" class="input" style="width:78px;text-align:center" value="${cfg('cabane_totali','10')}" onchange="setCfg('cabane_totali',this.value)"></div>
     <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:14px"><div><div style="font-size:14px">Spesa minima cabana €</div><div class="dim" style="font-size:12px">in bottiglie, modificabile</div></div>
@@ -4964,8 +5044,8 @@ function renderSetup(){
   </div>
   <div class="label" style="margin:20px 0 10px">Stagione operativa · condiviso col team</div>
   <div class="card" style="padding:16px;margin-bottom:14px">
-    <div class="grid2 field"><div><div class="label" style="margin-bottom:6px">Inizio</div><input type="date" class="input" value="${cfg('season_start','')}" onchange="setCfg('season_start',this.value)"></div>
-      <div><div class="label" style="margin-bottom:6px">Fine</div><input type="date" class="input" value="${cfg('season_end','')}" onchange="setCfg('season_end',this.value)"></div></div>
+    <div class="grid2 field"><div><div class="label" style="margin-bottom:6px">Inizio</div><input type="date" class="input" value="${cfg('season_start','')}" onchange="setCfg('season_start',this.value,true)"></div>
+      <div><div class="label" style="margin-bottom:6px">Fine</div><input type="date" class="input" value="${cfg('season_end','')}" onchange="setCfg('season_end',this.value,true)"></div></div>
     <div class="label" style="margin-bottom:8px">Giorni di apertura</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">${[[1,'Lun'],[2,'Mar'],[3,'Mer'],[4,'Gio'],[5,'Ven'],[6,'Sab'],[0,'Dom']].map(d=>`<span class="chip ${operDays().includes(d[0])?'on':''}" style="cursor:pointer" onclick="toggleDay(${d[0]})">${d[1]}</span>`).join('')}</div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;border-top:1px solid var(--border);padding-top:14px"><div><div style="font-size:14px">Target ricavi stagione €</div><div class="dim" style="font-size:12px">obiettivo per la dashboard Risultati</div></div>
