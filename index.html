@@ -210,6 +210,41 @@ header.top::after{content:'';display:block;height:1px;background:linear-gradient
   #printArea table{width:100%;border-collapse:collapse;font-size:11px}
   #printArea th,#printArea td{border-bottom:1px solid #ddd;padding:5px 6px;text-align:left}
   #printArea td.r,#printArea th.r{text-align:right}
+
+  /* ---- resoconto costi: foglio di stile dedicato ---- */
+  #printArea.cf{font-family:'Manrope',system-ui,sans-serif;font-size:10.5px;color:#1a1a19;line-height:1.45}
+  .cf .cf-head{border-bottom:2.5px solid #1a1a19;padding-bottom:9px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:flex-end}
+  .cf .cf-tit{font-size:25px;font-weight:700;letter-spacing:-.03em;line-height:1}
+  .cf .cf-sub{font-size:9.5px;color:#6b6b66;margin-top:5px;letter-spacing:.01em}
+  .cf .cf-meta{font-size:9px;color:#8a8a83;text-align:right;line-height:1.5}
+  .cf .cf-kpi{display:flex;gap:9px;margin-bottom:15px}
+  .cf .cf-k{flex:1;border:1px solid #d8d8d2;border-radius:7px;padding:9px 11px;background:#fbfbf9}
+  .cf .cf-k.big{background:#1a1a19;color:#fff;border-color:#1a1a19}
+  .cf .cf-k .kk{font-size:7.5px;letter-spacing:.11em;text-transform:uppercase;color:#8a8a83;margin-bottom:4px;font-weight:600}
+  .cf .cf-k.big .kk{color:#b5b5ad}
+  .cf .cf-k .kv{font-size:17px;font-weight:700;letter-spacing:-.03em;line-height:1.05}
+  .cf .cf-k .kn{font-size:8.5px;color:#8a8a83;margin-top:3px;line-height:1.35}
+  .cf .cf-k.big .kn{color:#c9c9c2}
+  .cf .cf-warn{border:1px solid #d8cba0;background:#fdfaf0;border-radius:7px;padding:9px 11px;margin-bottom:15px}
+  .cf .cf-warn .wt{font-size:8px;letter-spacing:.11em;text-transform:uppercase;font-weight:700;color:#8a6d13;margin-bottom:5px}
+  .cf .cf-warn ul{margin:0;padding-left:14px;font-size:9.5px;color:#4a4a45}
+  .cf .cf-warn li{margin-bottom:2.5px}
+  .cf h2{font-size:12px;font-weight:700;letter-spacing:-.01em;margin:16px 0 6px;border:0;padding:0;color:#1a1a19}
+  .cf h2 span{font-weight:400;font-size:8.5px;color:#8a8a83;margin-left:6px;letter-spacing:0}
+  .cf table{width:100%;border-collapse:collapse;font-size:9.5px}
+  .cf thead th{background:#1a1a19;color:#fff;font-size:7.5px;letter-spacing:.09em;text-transform:uppercase;
+    padding:5px 7px;text-align:left;border:0;font-weight:600}
+  .cf thead th.r{text-align:right}
+  .cf tbody td{padding:5px 7px;border:0;border-bottom:1px solid #ecece8}
+  .cf tbody tr:nth-child(even) td{background:#fafaf8}
+  .cf tbody td.r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .cf tbody tr.tot td{border-top:1.5px solid #1a1a19;border-bottom:0;font-weight:700;background:#fff!important;padding-top:6px}
+  .cf tbody tr.esc td{color:#9a9a93}
+  .cf .bar{display:inline-block;height:4px;background:#1a1a19;border-radius:2px;vertical-align:middle;margin-right:5px}
+  .cf .pc{font-size:8.5px;color:#6b6b66;white-space:nowrap}
+  .cf .cf-foot{margin-top:16px;padding-top:7px;border-top:1px solid #d8d8d2;font-size:8px;color:#9a9a93;display:flex;justify-content:space-between}
+  .cf tbody tr{page-break-inside:avoid}
+  .cf h2{page-break-after:avoid}
 }
 </style>
 </head>
@@ -4366,50 +4401,59 @@ function cfCsv(){
    e poi pizzica per salvare il PDF; su computer esce la finestra di stampa. */
 function cfPdf(){
   const L=cfList(), tot=cfTot(L), imp=cfTot(L,'imponibile'), iva=cfTot(L,'iva');
-  const tutte=(S.costiFatture||[]), esclL=tutte.filter(x=>x.escluso);
+  const tutte=(S.costiFatture||[]), esclL=tutte.filter(x=>x.escluso), totEsc=cfTot(esclL);
   const nonInd=L.filter(x=>x.pagamento==='Non indicato'), zero=L.filter(x=>Number(x.totale)===0);
   const daCat=L.filter(x=>x.categoria==='Da classificare');
-  const per=L.length?L.map(x=>x.data).sort():[];
-  const g=(campo)=>{const m={};L.forEach(x=>{const k=x[campo]||'—';(m[k]=m[k]||{i:0,v:0,t:0,n:0});m[k].i+=+x.imponibile||0;m[k].v+=+x.iva||0;m[k].t+=+x.totale||0;m[k].n++;});
+  const dd=L.map(x=>x.data).sort();
+  const g=campo=>{const m={};L.forEach(x=>{const k=x[campo]||'—';(m[k]=m[k]||{i:0,v:0,t:0,n:0});m[k].i+=+x.imponibile||0;m[k].v+=+x.iva||0;m[k].t+=+x.totale||0;m[k].n++;});
     return Object.entries(m).sort((a,b)=>b[1].t-a[1].t);};
   const tab=(tit,sot,et,rows)=>{
-    let h=`<h2>${tit}${sot?` <span style="font-weight:400;font-size:11px;color:#666">${sot}</span>`:''}</h2>
-    <table><tr><th>${et}</th><th class="r">Fatture</th><th class="r">Imponibile</th><th class="r">IVA</th><th class="r">Totale</th><th class="r">Peso</th></tr>`;
-    rows.forEach(([k,v])=>{h+=`<tr><td>${esc(k)}</td><td class="r">${v.n}</td><td class="r">${eur(v.i)}</td><td class="r">${eur(v.v)}</td><td class="r">${eur(v.t)}</td><td class="r">${tot?(v.t/tot*100).toFixed(1):0}%</td></tr>`;});
-    h+=`<tr><td><b>Totale</b></td><td class="r"><b>${L.length}</b></td><td class="r"><b>${eur(imp)}</b></td><td class="r"><b>${eur(iva)}</b></td><td class="r"><b>${eur(tot)}</b></td><td class="r"><b>100%</b></td></tr></table>`;
+    let h=`<h2>${tit}${sot?`<span>${sot}</span>`:''}</h2><table>
+      <thead><tr><th>${et}</th><th class="r">Fatt.</th><th class="r">Imponibile</th><th class="r">IVA</th><th class="r">Totale</th><th class="r">Peso</th></tr></thead><tbody>`;
+    rows.forEach(([k,v])=>{const pc=tot?v.t/tot*100:0;
+      h+=`<tr><td>${esc(k)}</td><td class="r">${v.n}</td><td class="r">${eur(v.i)}</td><td class="r">${eur(v.v)}</td><td class="r"><b>${eur(v.t)}</b></td>
+        <td class="r"><span class="bar" style="width:${Math.max(2,pc*0.42).toFixed(1)}mm"></span><span class="pc">${pc.toFixed(1)}%</span></td></tr>`;});
+    h+=`<tr class="tot"><td>Totale</td><td class="r">${L.length}</td><td class="r">${eur(imp)}</td><td class="r">${eur(iva)}</td><td class="r">${eur(tot)}</td><td class="r"><span class="pc">100%</span></td></tr></tbody></table>`;
     return h;};
 
   let a=[];
-  if(nonInd.length)a.push(`<b>${nonInd.length} fatture non dicono come sono state pagate</b> (${nonInd.map(x=>esc(x.fornitore)).join(', ')}) per ${eur(cfTot(nonInd))}.`);
-  if(zero.length)a.push(`<b>${zero.length} fattura a importo zero</b>: ${zero.map(x=>esc(x.fornitore)).join(', ')}. Da verificare se è una fornitura in omaggio o un errore del fornitore.`);
-  if(daCat.length)a.push(`<b>${daCat.length} da classificare</b> per ${eur(cfTot(daCat))}.`);
-  if(esclL.length)a.push(`<b>${esclL.length} fatture escluse dal totale</b> per ${eur(cfTot(esclL))}: ${esclL.map(x=>esc(x.fornitore)).join(', ')}. Sono costi veri, tenuti fuori dal conto operativo.`);
-
+  if(nonInd.length)a.push(`<b>${nonInd.length} senza metodo di pagamento</b> per ${eur(cfTot(nonInd))}: ${nonInd.map(x=>esc(x.fornitore)).join(', ')}.`);
+  if(zero.length)a.push(`<b>${zero.length} a importo zero</b>: ${zero.map(x=>esc(x.fornitore)).join(', ')}. Da verificare se è una fornitura in omaggio o un errore del fornitore.`);
+  if(daCat.length)a.push(`<b>${daCat.length} da classificare</b> per ${eur(cfTot(daCat))}: ${daCat.map(x=>esc(x.fornitore)).join(', ')}.`);
+  if(esclL.length){const nomi=[...new Set(esclL.map(x=>x.fornitore))];
+    a.push(`<b>${esclL.length} escluse dal totale</b> per ${eur(totEsc)}: ${nomi.map(esc).join(' · ')}. Sono costi veri, tenuti fuori dal conto operativo.`);}
   const top=g('fornitore')[0]||['—',{t:0}];
-  document.getElementById('printArea').innerHTML=`
-    <h1>Costi Eonica Group</h1>
-    <div style="font-size:11px;color:#555;margin-bottom:10px">Fatture ricevute da Eonica Group SRL${per.length?` · dal ${fmtDay(per[0])} al ${fmtDay(per[per.length-1])}`:''} · ${L.length} fatture nel totale operativo${esclL.length?`, ${esclL.length} escluse`:''} · stampato il ${new Date().toLocaleDateString('it-IT')}</div>
-    ${a.length?`<div style="border:1px solid #999;padding:7px 9px;font-size:10.5px;margin-bottom:12px"><b>Da controllare</b><ul style="margin:5px 0 0;padding-left:16px">${a.map(x=>`<li style="margin-bottom:3px">${x}</li>`).join('')}</ul></div>`:''}
-    <table style="margin-bottom:6px"><tr>
-      <td style="width:25%"><div style="font-size:9px;letter-spacing:.08em;color:#666">TOTALE OPERATIVO</div><div style="font-size:17px"><b>${eur(tot)}</b></div><div style="font-size:10px;color:#666">${L.length} fatture</div></td>
-      <td style="width:25%"><div style="font-size:9px;letter-spacing:.08em;color:#666">IMPONIBILE</div><div style="font-size:17px"><b>${eur(imp)}</b></div><div style="font-size:10px;color:#666">IVA ${eur(iva)}</div></td>
-      <td style="width:25%"><div style="font-size:9px;letter-spacing:.08em;color:#666">FORNITORE PRINCIPALE</div><div style="font-size:17px"><b>${eur(top[1].t)}</b></div><div style="font-size:10px;color:#666">${esc(top[0])} · ${tot?(top[1].t/tot*100).toFixed(0):0}% del totale</div></td>
-      <td style="width:25%"><div style="font-size:9px;letter-spacing:.08em;color:#666">SENZA METODO DI PAGAMENTO</div><div style="font-size:17px"><b>${nonInd.length}</b></div><div style="font-size:10px;color:#666">${nonInd.length?eur(cfTot(nonInd))+' da attribuire':'tutte attribuite'}</div></td>
-    </tr></table>
-    ${tab('Per metodo di pagamento','come dichiarato nella fattura elettronica','Metodo',g('pagamento'))}
-    ${tab('Per categoria di spesa','','Categoria',g('categoria'))}
-    ${tab('Per fornitore','','Fornitore',g('fornitore'))}
-    <h2>Tutte le fatture</h2>
-    <table><tr><th>Data</th><th>Fornitore</th><th>Numero</th><th>Categoria</th><th>Pagamento</th><th class="r">Imponibile</th><th class="r">IVA</th><th class="r">Totale</th></tr>
-    ${tutte.slice().sort((x,y)=>x.data.localeCompare(y.data)).map(x=>`<tr${x.escluso?' style="color:#888"':''}>
-      <td>${fmtShort(x.data)}</td><td>${esc(x.fornitore)}${x.escluso?' <i>(esclusa)</i>':''}</td><td>${esc(x.numero||'')}</td>
-      <td>${esc(x.categoria)}</td><td>${esc(x.pagamento)}</td>
-      <td class="r">${eur(x.imponibile)}</td><td class="r">${eur(x.iva)}</td><td class="r">${eur(x.totale)}</td></tr>`).join('')}
-    <tr><td colspan="5"><b>Totale operativo</b></td><td class="r"><b>${eur(imp)}</b></td><td class="r"><b>${eur(iva)}</b></td><td class="r"><b>${eur(tot)}</b></td></tr>
-    ${esclL.length?`<tr><td colspan="7" style="color:#888">Escluse dal totale (${esclL.length})</td><td class="r" style="color:#888">${eur(cfTot(esclL))}</td></tr>`:''}
-    </table>
-    <div style="font-size:9.5px;color:#777;margin-top:14px">KIRKE Ritual Lounge · GLAMPING CIRCEO S.R.L.S. · documento generato dal gestionale</div>`;
-  setTimeout(()=>window.print(),120);
+  const per=dd.length?`${fmtShort(dd[0])} — ${fmtShort(dd[dd.length-1])}`:'';
+
+  const pa=document.getElementById('printArea');
+  pa.className='cf';
+  pa.innerHTML=`
+  <div class="cf-head">
+    <div><div class="cf-tit">Costi Eonica Group</div>
+      <div class="cf-sub">Fatture ricevute · ${per}</div></div>
+    <div class="cf-meta">EONICA GROUP SRL<br>${L.length} fatture nel totale operativo${esclL.length?` · ${esclL.length} escluse`:''}<br>stampato il ${new Date().toLocaleDateString('it-IT')}</div>
+  </div>
+  <div class="cf-kpi">
+    <div class="cf-k big"><div class="kk">Totale operativo</div><div class="kv">${eur(tot)}</div><div class="kn">${L.length} fatture · IVA ${eur(iva)}</div></div>
+    <div class="cf-k"><div class="kk">Imponibile</div><div class="kv">${eur(imp)}</div><div class="kn">al netto dell'IVA</div></div>
+    <div class="cf-k"><div class="kk">Fornitore principale</div><div class="kv">${eur(top[1].t)}</div><div class="kn">${esc(top[0])} · ${tot?(top[1].t/tot*100).toFixed(0):0}%</div></div>
+    <div class="cf-k"><div class="kk">Fuori dal totale</div><div class="kv">${eur(totEsc)}</div><div class="kn">${esclL.length} fatture escluse</div></div>
+  </div>
+  ${a.length?`<div class="cf-warn"><div class="wt">Da controllare</div><ul>${a.map(x=>`<li>${x}</li>`).join('')}</ul></div>`:''}
+  ${tab('Per metodo di pagamento','come dichiarato nella fattura elettronica','Metodo',g('pagamento'))}
+  ${tab('Per categoria di spesa','','Categoria',g('categoria'))}
+  ${tab('Per fornitore','','Fornitore',g('fornitore'))}
+  <h2>Tutte le fatture<span>in ordine di data · in grigio quelle fuori dal totale</span></h2>
+  <table><thead><tr><th>Data</th><th>Fornitore</th><th>Numero</th><th>Categoria</th><th>Pagamento</th><th class="r">Imponibile</th><th class="r">IVA</th><th class="r">Totale</th></tr></thead><tbody>
+  ${tutte.slice().sort((x,y)=>x.data.localeCompare(y.data)).map(x=>`<tr${x.escluso?' class="esc"':''}>
+    <td>${fmtShort(x.data)}</td><td>${esc(x.fornitore)}${x.escluso?' · esclusa':''}</td><td>${esc(x.numero||'')}</td>
+    <td>${esc(x.categoria)}</td><td>${esc(x.pagamento)}</td>
+    <td class="r">${eur(x.imponibile)}</td><td class="r">${eur(x.iva)}</td><td class="r">${eur(x.totale)}</td></tr>`).join('')}
+  <tr class="tot"><td colspan="5">Totale operativo</td><td class="r">${eur(imp)}</td><td class="r">${eur(iva)}</td><td class="r">${eur(tot)}</td></tr>
+  ${esclL.length?`<tr class="esc"><td colspan="7">Escluse dal totale · ${esclL.length} fatture</td><td class="r">${eur(totEsc)}</td></tr>`:''}
+  </tbody></table>
+  <div class="cf-foot"><span>KIRKE Ritual Lounge · GLAMPING CIRCEO S.R.L.S.</span><span>documento generato dal gestionale</span></div>`;
+  setTimeout(()=>{window.print();setTimeout(()=>{pa.className='';},600);},120);
 }
 function cfGruppo(campo){
   const m={}; cfList().forEach(x=>{const k=x[campo]||'—';(m[k]=m[k]||{t:0,n:0});m[k].t+=Number(x.totale||0);m[k].n++;});
