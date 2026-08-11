@@ -1031,12 +1031,13 @@ function renderCalendarioSolo(){
 let serateFilter='tutte', serateMode='copertura', todoFilter='tutti', covView='cal', serateOrd='data';
 function renderSerate(){
   let html=`<div class="fade"><div class="h1 serif" style="margin-bottom:14px">Programmazione</div>
-    <div style="display:flex;gap:8px;margin-bottom:16px;overflow-x:auto;padding-bottom:2px">
+    <!-- va a capo invece di scorrere: con sette voci, in orizzontale l'ultima restava sempre nascosta -->
+    <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px">
       <span class="chip ${serateMode==='copertura'?'on':''}" style="cursor:pointer" onclick="serateMode='copertura';renderSerate()">Copertura</span>
       <span class="chip ${serateMode==='elenco'?'on':''}" style="cursor:pointer" onclick="serateMode='elenco';renderSerate()">Serate</span>
       <span class="chip ${serateMode==='risultati'?'on':''}" style="cursor:pointer" onclick="serateMode='risultati';renderSerate()">📊 Risultati${serateChiudibili().length?' · '+serateChiudibili().length:''}</span>
       <span class="chip ${serateMode==='cassa'?'on':''}" style="cursor:pointer" onclick="serateMode='cassa';renderSerate()">💰 Cassa${cassaDaAssegnare().n?' · '+cassaDaAssegnare().n:''}</span>
-      <span class="chip ${serateMode==='costieonica'?'on':''}" style="cursor:pointer" onclick="serateMode='costieonica';renderSerate()">🧾 Costi Eonica Group</span>
+      <span class="chip ${serateMode==='costieonica'?'on':''}" style="cursor:pointer" onclick="serateMode='costieonica';renderSerate()">🧾 Costi</span>
       <span class="chip ${serateMode==='file'?'on':''}" style="cursor:pointer" onclick="serateMode='file';renderSerate()">Documenti${S.file.length?' · '+S.file.length:''}</span>
     </div>`;
   if(serateMode==='copertura'){
