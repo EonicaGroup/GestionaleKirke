@@ -20,10 +20,12 @@ self.addEventListener('notificationclick', function(event){
     for(var i=0;i<list.length;i++){
       var c=list[i];
       if(c.url.indexOf(self.location.origin)===0){
-        // la finestra è già aperta: la porto sul deep link e la metto a fuoco
-        if('navigate' in c){ return c.navigate(full).then(function(w){ return (w||c).focus(); }); }
-        c.postMessage({kirkeGo:full});
-        return c.focus();
+        // Finestra già aperta. Su iPhone navigate() spesso non fa nulla e la app resta
+        // dov'era: perciò mando SEMPRE anche il messaggio, che l'app sa applicare da sola.
+        try{ c.postMessage({kirkeGo:full}); }catch(e){}
+        var p=c.focus();
+        if('navigate' in c){ try{ c.navigate(full).catch(function(){}); }catch(e){} }
+        return p;
       }
     }
     return self.clients.openWindow(full);

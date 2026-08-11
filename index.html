@@ -5323,39 +5323,63 @@ function gPushCard(){
 }
 function gPushGuida(){gPushPopup();}
 
-/* --- apertura da notifica: ?go=scarico&serata=NN oppure ?go=carico --- */
+/* --- apertura da notifica: ?go=DESTINAZIONE[&serata=NN] ---
+   Ogni notifica deve atterrare esattamente dove serve agire. Se la destinazione
+   non è riconosciuta si finisce sulla Home invece che in una schermata a caso. */
+const GDEST={
+  scarico:   async sid=>{ gotoTab('magazzino');
+                          if(sid&&S.serate.some(x=>x.id===sid)){ magSerata=sid; await contaApri(); toast('Conta di '+magSerataLabel()); }
+                          else { magazzinoMode='conta'; render(); } },
+  conta:     async sid=>GDEST.scarico(sid),
+  carico:    async()=>{ gotoTab('magazzino'); magazzinoMode='giacenze'; render(); toast("Tocca l'articolo da caricare"); },
+  giacenze:  async()=>{ gotoTab('magazzino'); magazzinoMode='giacenze'; render(); },
+  listino:   async()=>{ gotoTab('magazzino'); magazzinoMode='listino'; render(); },
+  allestimento:async()=>{ gotoTab('magazzino'); magazzinoMode='allestimento'; render(); },
+  consuntivo:async sid=>{ gotoTab('serate','risultati');
+                          if(sid&&S.serate.some(x=>x.id===sid))openEcon(sid); },
+  risultati: async()=>gotoTab('serate','risultati'),
+  serata:    async sid=>{ gotoTab('serate','elenco'); if(sid&&S.serate.some(x=>x.id===sid))openSerata(sid); },
+  serate:    async()=>gotoTab('serate','elenco'),
+  copertura: async()=>gotoTab('serate','copertura'),
+  cassa:     async()=>gotoTab('serate','cassa'),
+  todo:      async()=>gotoTab('serate','todo'),
+  documenti: async()=>gotoTab('serate','file'),
+  sponsor:   async()=>gotoTab('serate','sponsor'),
+  team:      async()=>gotoTab('personale'),
+  rubrica:   async()=>gotoTab('contatti'),
+  prenota:   async()=>gotoTab('prenota'),
+  setup:     async()=>gotoTab('setup'),
+  home:      async()=>gotoTab('home'),
+};
+/* Il service worker parla alla finestra già aperta. Il messaggio può arrivare mentre sei
+   ancora alla password o mentre i dati stanno caricando: in quel caso lo tengo da parte
+   e lo applico appena l'app è pronta, invece di perderlo. */
+let _goPending=null;
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.addEventListener('message',ev=>{
+    const u=ev.data&&ev.data.kirkeGo; if(!u)return;
+    let qs; try{ qs=new URL(u,location.origin).searchParams; }catch(e){ return; }
+    if(document.getElementById('app').classList.contains('hidden')||!S.serate.length){ _goPending=qs; return; }
+    gDeepLink(qs);
+  });
+}
 async function gDeepLink(qs){
-  const go=qs.get('go');
+  const go=(qs.get('go')||'').toLowerCase();
   if(!go)return false;
-  if(go==='scarico'){
-    const sid=+qs.get('serata')||0;
-    gotoTab('magazzino');
-    if(sid&&S.serate.some(x=>x.id===sid)){
-      magSerata=sid;
-      await contaApri();
-      toast('Conta di '+magSerataLabel());
-    } else { magazzinoMode='conta'; render(); }
-    return true;
-  }
-  if(go==='carico'){
-    gotoTab('magazzino'); magazzinoMode='giacenze'; render();
-    toast('Tocca l\'articolo da caricare');
-    return true;
-  }
-  return false;
+  const sid=+qs.get('serata')||0;
+  const f=GDEST[go];
+  try{
+    if(f){ await f(sid); }
+    else { gotoTab('home'); toast('Notifica non riconosciuta: '+go); }
+  }catch(e){ gotoTab('home'); toast('Non sono riuscito ad aprire: '+go); }
+  return true;
 }
 async function gPushBoot(){
   const qs=new URLSearchParams(location.search);
   let salta=false;
   try{ salta=await gDeepLink(qs); }catch(e){}
   if(qs.get('go')){ try{history.replaceState(null,'',location.pathname);}catch(e){} }
-  // il service worker può chiedere alla finestra già aperta di andare sul deep link
-  if('serviceWorker' in navigator){
-    navigator.serviceWorker.addEventListener('message',ev=>{
-      const u=ev.data&&ev.data.kirkeGo; if(!u)return;
-      try{ gDeepLink(new URL(u).searchParams); }catch(e){}
-    });
-  }
+  if(_goPending){ const q=_goPending; _goPending=null; try{ await gDeepLink(q); salta=true; }catch(e){} }
   if(salta||MAGONLY)return;
   if(gPushAttivo()){
     // leggo PRIMA di rinfrescare: gPushIscrivi marca la novità come vista e mi spegnerebbe il popup
