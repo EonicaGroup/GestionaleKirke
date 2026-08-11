@@ -727,7 +727,7 @@ table{width:100%;border-collapse:collapse}
 ${r('Incasso bar',eur(e.ricaviBar))}
 ${r('Extra e sponsor',eur(e.extra))}
 ${r('<b>Totale ricavi</b>','<b>'+eur(e.ricavi)+'</b>')}
-${r('Costo merce'+(e.merceDaScarico?' <span style="color:#8a7a5c">(da scarico magazzino)</span>':' <span style="color:#8a7a5c">(stimato)</span>'),'− '+eur(e.cogs))}
+${r('Costo merce'+(e.merceStimata?' <span style="color:#8a7a5c">(compreso nelle spese serata)</span>':(e.merceDaScarico?' <span style="color:#8a7a5c">(da scarico magazzino)</span>':' <span style="color:#8a7a5c">(stimato)</span>')),'− '+eur(e.cogs))}
 ${r('Personale in turno'+(ass.length?' <span style="color:#8a7a5c">('+ass.length+')</span>':''),'− '+eur(e.personale))}
 ${r('Costi serata','− '+eur(e.costiFissi))}
 ${e.quotaOrg>0?r('Quota '+esc((e.org&&e.org.nome)||'organizzatore')+' <span style="color:#8a7a5c">('+esc(e.orgBase)+')</span>','− '+eur(e.quotaOrg)):''}
@@ -3110,7 +3110,7 @@ function econ(s){
     else if(at.indexOf('cachet')>-1){quotaOrg=av;orgBase='cachet fisso';}
   }
   return {ricaviV,ricaviBar,incTot,extra,extraDaInc:Math.max(0,extra-extraInc),ricavi,
-    cogs:costoMerce,cogsTeorico:cogs,merceDaScarico,personale,costiFissi,
+    cogs:costoMerce,cogsTeorico:cogs,merceDaScarico,merceStimata:!!s.merce_stimata,serataId:s.id,personale,costiFissi,
     quotaOrg,orgBase,org:orgC,
     margine:ricavi-costoMerce-personale-costiFissi-quotaOrg};
 }
@@ -4484,6 +4484,20 @@ function renderCostiEonica(){
   return h;
 }
 
+/* Alcune serate non avranno mai lo scarico: il costo merce è finito nelle spese
+   generali e il magazzino è stato ricontato dopo, quindi scaricare adesso creerebbe
+   rettifiche false. Marcarle spegne il promemoria e lo dichiara nel consuntivo. */
+async function merceStimataToggle(sid){
+  const s=S.serate.find(x=>x.id===sid); if(!s)return;
+  const nuovo=!s.merce_stimata;
+  if(nuovo&&!confirm('Confermi che per '+fmtDay(s.data)+' il costo merce è già dentro le spese serata?\n\nNon ti chiederò più lo scarico per questa serata e il consuntivo lo dichiarerà.'))return;
+  const r=await db.from('serate').update({merce_stimata:nuovo,
+    merce_stimata_nota:nuovo?'Costo merce coperto dalle spese generali: lo scarico non è stato fatto e il magazzino è stato ricontato dopo.':null}).eq('id',sid);
+  if(r.error){toast('Errore: '+r.error.message);return;}
+  s.merce_stimata=nuovo;
+  toast(nuovo?'Non te la chiederò più':'Torna tra quelle da scaricare');
+  render();
+}
 function renderCassa(){
   const t=cassaSaldi(), da=cassaDaAssegnare(), L=cassaLedger();
   let h='';
@@ -4994,7 +5008,8 @@ function ceTable(e,target){
   return `<div class="card" style="padding:16px;margin-bottom:12px">
     <div style="display:flex;justify-content:space-between;padding:4px 0"><span class="muted">Incasso bar</span><b>${eur(e.ricaviBar)}</b></div>
     <div style="display:flex;justify-content:space-between;padding:4px 0"><span class="muted">Extra / sponsor</span><b>${eur(e.extra)}</b></div>
-    <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px"><span class="dim">− Costo merce ${e.merceDaScarico?'<span style="opacity:.7">· da scarico</span>':'<span style="opacity:.7">· stimato</span>'}</span><span>${eur(e.cogs)}</span></div>
+    <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px"><span class="dim">− Costo merce ${e.merceStimata?'<span style="opacity:.7">· nelle spese serata</span>':(e.merceDaScarico?'<span style="opacity:.7">· da scarico</span>':'<span style="opacity:.7">· stimato</span>')}</span><span>${eur(e.cogs)}</span></div>
+    ${(!e.merceDaScarico)?`<div style="padding:2px 0 6px"><button class="btn btn-sm btn-ghost" style="width:100%;font-size:11.5px" onclick="merceStimataToggle(${e.serataId})">${e.merceStimata?'↩︎ La merce va ancora scaricata':'✓ La merce è già nelle spese serata: non chiedermela più'}</button></div>`:''}
     <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px"><span class="dim">− Personale</span><span>${eur(e.personale)}</span></div>
     <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px"><span class="dim">− Costi serata</span><span>${eur(e.costiFissi)}</span></div>
     ${e.quotaOrg>0?`<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px"><span class="dim">− Quota ${esc((e.org&&e.org.nome)||'organizzatore')} <span style="opacity:.7">· ${esc(e.orgBase)}</span></span><span>${eur(e.quotaOrg)}</span></div>`:''}
