@@ -4550,7 +4550,10 @@ function cfCsv(){
    e poi pizzica per salvare il PDF; su computer esce la finestra di stampa. */
 function cfPdf(){
   const L=cfList(), tot=cfTot(L), imp=cfTot(L,'imponibile'), iva=cfTot(L,'iva');
-  const tutte=(S.costiFatture||[]), esclL=tutte.filter(x=>x.escluso), totEsc=cfTot(esclL);
+  // nel resoconto entrano solo le escluse marcate "nel_report" (la struttura):
+  // le altre — software, consulenze — non compaiono affatto.
+  const tutte=(S.costiFatture||[]).filter(x=>!x.escluso||x.nel_report!==false);
+  const esclL=tutte.filter(x=>x.escluso), totEsc=cfTot(esclL);
   const nonInd=L.filter(x=>x.pagamento==='Non indicato'), zero=L.filter(x=>Number(x.totale)===0);
   const daCat=L.filter(x=>x.categoria==='Da classificare');
   const dd=L.map(x=>x.data).sort();
