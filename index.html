@@ -4498,6 +4498,43 @@ async function merceStimataToggle(sid){
   toast(nuovo?'Non te la chiederò più':'Torna tra quelle da scaricare');
   render();
 }
+/* I compensi del personale abbassano il margine ma dalla cassa non esce niente:
+   il gestionale conosce le tariffe, la cassa no, e nessuno registra cento pagamenti
+   a mano. Qui li registra in un tocco, serata per serata, quando vuoi tu. */
+function compensiSerata(sid){
+  return S.assegn.filter(a=>a.serata_id===sid).map(a=>{
+    const p=S.personale.find(x=>x.id===a.personale_id);
+    return (p&&p.tipo_rapporto!=='socio')?{nome:p.nome,imp:Number(p.tariffa_serata||0)}:null;
+  }).filter(x=>x&&x.imp>0);
+}
+function compensiGiaFatti(sid){ return (S.cassaMov||[]).some(m=>m.serata_id===sid&&m.categoria==='Personale'); }
+function compensiChiedi(){
+  const cons=S.serate.filter(s=>s.stato==='consuntivo'||s.chiusa_il).sort((a,b)=>b.data.localeCompare(a.data)).slice(0,20);
+  $('#modalbody').innerHTML=`
+    <div class="serif" style="font-size:19px;margin-bottom:4px">Compensi del personale</div>
+    <div class="dim" style="font-size:12.5px;line-height:1.55;margin-bottom:14px">Scegli la serata: registro in cassa quello che hai pagato ai ragazzi in turno, così il saldo torna al contante che hai davvero.</div>
+    ${cons.map(s=>{const c=compensiSerata(s.id), tot=c.reduce((t,x)=>t+x.imp,0), fatto=compensiGiaFatti(s.id);
+      if(!tot)return '';
+      return `<button class="btn btn-ghost" style="width:100%;text-align:left;margin-bottom:7px;display:flex;align-items:center;gap:9px;${fatto?'opacity:.55':''}" onclick="compensiRegistra(${s.id})">
+        ${fatto?'<span style="color:#4bb573;flex:none">✓</span>':''}
+        <span style="flex:1;text-transform:capitalize">${esc(fmtDay(s.data))}<br><span class="dim" style="font-size:11px;text-transform:none">${c.length} persone · ${esc(c.map(x=>x.nome).join(', ')).slice(0,52)}</span></span>
+        <b style="flex:none">${eur(tot)}</b></button>`;}).join('')||'<div class="dim" style="font-size:13px">Nessuna serata con compensi da registrare.</div>'}
+    <button class="btn btn-ghost" style="width:100%;margin-top:6px" onclick="hideModal()">Chiudi</button>`;
+  showModal();
+}
+async function compensiRegistra(sid){
+  const s=S.serate.find(x=>x.id===sid); if(!s)return;
+  const c=compensiSerata(sid), tot=c.reduce((t,x)=>t+x.imp,0);
+  if(!tot)return;
+  if(compensiGiaFatti(sid)&&!confirm('Per '+fmtDay(s.data)+' i compensi risultano già registrati in cassa.\n\nNe aggiungo un altro?'))return;
+  const conto=confirm('Registro '+eur(tot)+' di compensi per '+fmtDay(s.data)+'.\n\n'+c.map(x=>'· '+x.nome+' '+eur(x.imp)).join('\n')+'\n\nOK = pagati in CONTANTI · Annulla = scelgo POS')?'contanti':'pos';
+  const r=await db.from('cassa_mov').insert({data:s.data,conto:conto,tipo:'uscita',importo:tot,
+    voce:'Personale',categoria:'Personale',serata_id:sid,
+    note:'Compensi del personale in turno: '+c.map(x=>x.nome+' '+x.imp).join(', ')});
+  if(r.error){toast('Errore: '+r.error.message);return;}
+  hideModal(); await reloadAll(); render();
+  toast('Registrati '+eur(tot)+' su '+(conto==='contanti'?'contanti':'POS'));
+}
 function renderCassa(){
   const t=cassaSaldi(), da=cassaDaAssegnare(), L=cassaLedger();
   let h='';
@@ -4536,6 +4573,7 @@ function renderCassa(){
     <button class="btn btn-accent btn-sm" onclick="openCassaMov(null,'uscita')">− Uscita</button>
     <button class="btn btn-ghost btn-sm" onclick="openCassaMov(null,'entrata')">+ Entrata</button>
     <button class="btn btn-ghost btn-sm" onclick="openCassaMov(null,'giroconto')">⇄ Versamento / prelievo</button>
+    <button class="btn btn-ghost btn-sm" onclick="compensiChiedi()">👥 Registra compensi serata</button>
   </div>`;
 
   h+=`<div class="grid2" style="margin-bottom:12px">${['contanti','pos'].map(k=>`
