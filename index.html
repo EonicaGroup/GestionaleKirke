@@ -4420,7 +4420,14 @@ function cassaVoce(r){
     if(/personal|accoglienz|hostess|staff|cameri|barman|barist|pr\b/.test(t))return 'Personale';
     if(/merce|food|fornit|bevand|acquist|magazzin|bibit|ghiacc/.test(t))return 'Merce';
     return null;};
-  return test(r.voce)||test(r.cat)||'Altro'; // il nome della voce batte la categoria
+  // Riconosciuta una famiglia nota? La uso. Altrimenti tengo il nome che hai scritto tu:
+  // "Sedie" resta "Sedie", non diventa un generico "Altro" che non dice niente.
+  const noto=test(r.voce)||test(r.cat);
+  if(noto)return noto;
+  const libero=((r.voce||'').trim()||(r.cat||'').trim());
+  if(!libero)return 'Altro';
+  // stessa voce scritta in modi diversi = un gruppo solo
+  return libero.charAt(0).toUpperCase()+libero.slice(1).toLowerCase();
 }
 function cassaSaldi(){
   const L=cassaLedger(), z=()=>({iniz:0,entrate:0,uscite:0,saldo:0,voci:{}});
