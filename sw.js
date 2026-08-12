@@ -5,11 +5,16 @@ self.addEventListener('push', function(event){
   var data={};
   try{ data=event.data.json(); }
   catch(_){ data={title:'KIRKE', body:(event.data&&event.data.text&&event.data.text())||'Nuova notifica'}; }
+  // Sul computer le notifiche svaniscono dopo pochi secondi e finiscono nel Centro
+  // Notifiche senza che te ne accorga: lì restano finché non le tocchi.
+  var desktop = !/Android|iPhone|iPad|Mobile/i.test(self.navigator && self.navigator.userAgent || '');
   event.waitUntil(self.registration.showNotification(data.title||'KIRKE',{
     body:data.body||'',
     icon:'https://crumhchnzebiqmbaivjt.supabase.co/storage/v1/object/public/appdist/kirke-192.png',
     badge:'https://crumhchnzebiqmbaivjt.supabase.co/storage/v1/object/public/appdist/kirke-192.png',
-    tag:data.tag||'kirke-pren', renotify:true, vibrate:[90,40,90], data:{url:data.url||'./'}
+    tag:data.tag||'kirke-pren', renotify:true, vibrate:[90,40,90],
+    requireInteraction: desktop,
+    data:{url:data.url||'./'}
   }));
 });
 self.addEventListener('notificationclick', function(event){
