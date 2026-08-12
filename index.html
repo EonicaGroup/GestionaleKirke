@@ -5596,10 +5596,15 @@ function logout(){location.reload();}
    Promemoria "serata chiusa ma merce non scaricata": arrivano dal server
    (edge function push-send + cron) alle 03, 12, 14, 17 e 21.
    Si spengono da sole appena lo scarico esiste. */
+const PUSHFN='15886a0d05f6ffe5948cd73680a47710';
 const GPUSH_SECRET="34b9a32398361e109f8b05e966ebc9ed";
 function gPushOk(){return ('serviceWorker' in navigator)&&('PushManager' in window)&&('Notification' in window);}
 function gStandalone(){return (window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches)||window.navigator.standalone===true;}
 function gIsIOS(){return /iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);}
+// Mac e Windows con Chrome/Edge: le push arrivano, ma l'app va installata dalla barra
+// degli indirizzi, non dal menù del telefono. Istruzioni diverse, stesso risultato.
+function gIsDesktop(){return !/iphone|ipad|ipod|android|mobile/i.test(navigator.userAgent)&&!gIsIOS();}
+function gIsMac(){return /macintosh|mac os x/i.test(navigator.userAgent)&&gIsDesktop();}
 function gPushAttivo(){return localStorage.getItem('cc_push_on')==='1'&&('Notification' in window)&&Notification.permission==='granted';}
 
 async function gPushIscrivi(){
@@ -5649,6 +5654,12 @@ async function gPushDisattiva(){
 /* --- popup di attivazione: cinque passaggi, coi tasti veri del telefono --- */
 function gPassaggi(){
   const std=gStandalone();
+  if(gIsDesktop()) return [
+    [std,'Nella barra degli indirizzi clicca l\'icona <b>Installa</b> (lo schermo con la freccia), a destra dell\'indirizzo'],
+    [std,'Se non la vedi: menù <b>⋮</b> ▸ <b>Trasmetti, salva e condividi</b> ▸ <b>Installa pagina come app</b>'],
+    [std,'Conferma con <b>Installa</b>: KIRKE diventa un\'app a sé'+(gIsMac()?', nel Launchpad':'')],
+    [std,'Apri <b>KIRKE</b> da lì, non più dalla scheda del browser'],
+    [false,'Clicca <b>Attiva notifiche</b> qui sotto e poi <b>Consenti</b>'+(gIsMac()?'. Se macOS chiede il permesso, dagli il via libera':'')]];
   return gIsIOS()
     ? [[std,'Tocca <b>Condividi</b>, l\'icona ⬆︎ in fondo allo schermo'],
        [std,'Scorri e tocca <b>Aggiungi a Home</b>'],
@@ -5772,8 +5783,8 @@ function gPushPopup(step){
                <button class="btn btn-ghost" style="flex:1" onclick="gPushRinvia()">Non ora</button></div>`}`;
   } else {
     const P=gPassaggi(), fatti=P.filter(p=>p[0]).length;
-    corpo=`<div class="label" style="margin-bottom:4px">Come si attiva · ${gIsIOS()?'iPhone':'Android'}</div>
-      <div class="dim" style="font-size:11.5px;line-height:1.5;margin-bottom:14px">${fatti?('Ne hai già fatti '+fatti+' su 5, ti resta il resto.'):'Cinque tocchi, una volta sola su questo telefono.'}</div>
+    corpo=`<div class="label" style="margin-bottom:4px">Come si attiva · ${gIsDesktop()?(gIsMac()?'Mac con Chrome':'Chrome sul computer'):(gIsIOS()?'iPhone':'Android')}</div>
+      <div class="dim" style="font-size:11.5px;line-height:1.5;margin-bottom:14px">${fatti?('Ne hai già fatti '+fatti+' su 5, ti resta il resto.'):('Cinque passaggi, una volta sola su questo '+(gIsDesktop()?'computer':'telefono')+'.')}</div>
       <div style="display:flex;flex-direction:column;gap:11px;margin-bottom:18px">
         ${P.map((p,i)=>`<div style="display:flex;gap:11px;align-items:flex-start;${p[0]?'opacity:.42':''}">
           <span style="flex:0 0 23px;height:23px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700;background:${p[0]?'#4bb573':'var(--accent)'};color:#12100c">${p[0]?'✓':(i+1)}</span>
@@ -5782,6 +5793,7 @@ function gPushPopup(step){
       <div id="gp_stat" class="dim" style="font-size:12.5px;min-height:17px;margin-bottom:10px"></div>
       <button class="btn btn-accent" id="gp_btn" style="width:100%${pronto?'':';opacity:.5'}" ${pronto?'':'disabled'} onclick="gPushBottone('gp_btn','gp_stat')">🔔 Attiva notifiche</button>
       ${pronto?'':`<div class="dim" style="font-size:11.5px;line-height:1.5;text-align:center;margin-top:9px">Su iPhone il bottone si accende solo dopo che hai aperto KIRKE dall'icona sulla Home: è Apple che vuole così.</div>`}
+      ${gIsDesktop()?`<div class="dim" style="font-size:11.5px;line-height:1.55;margin-top:11px;padding-top:10px;border-top:1px solid var(--border)">Sul computer gli avvisi arrivano finché ${gIsMac()?'Chrome è in esecuzione, anche solo nel Dock':'Chrome è aperto, anche ridotto a icona'}. Se lo chiudi del tutto, li ritrovi alla riapertura.${gIsMac()?' Controlla anche <b>Impostazioni di Sistema ▸ Notifiche ▸ Chrome</b>.':''}</div>`:''}
       <div style="display:flex;gap:8px;margin-top:8px">
         <button class="btn btn-ghost" style="flex:0 0 44%" onclick="gPushPopup(2)">← Indietro</button>
         <button class="btn btn-ghost" style="flex:1" onclick="gPushRinvia()">Non ora</button></div>`;
@@ -5806,10 +5818,27 @@ function gPushCard(){
     <div class="dim" style="font-size:12.5px;line-height:1.6;margin-bottom:12px">${esc(msg)}</div>
     <div id="gs_stat" class="dim" style="font-size:12.5px;min-height:17px;margin-bottom:8px"></div>
     <button class="btn ${on?'btn-ghost':'btn-accent'}" style="width:100%" id="gs_btn" onclick="${on?'gPushGuida()':"gPushBottone('gs_btn','gs_stat')"}">${on?'📖 Rivedi la guida':'🔔 Attiva notifiche'}</button>
-    ${on?`<button class="btn btn-ghost" style="width:100%;margin-top:8px;color:#f87171" onclick="gPushDisattiva()">Disattiva su questo dispositivo</button>`:''}
+    ${on?`<button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="gPushProva()">🔔 Mandami una notifica di prova</button>
+          <button class="btn btn-ghost" style="width:100%;margin-top:8px;color:#f87171" onclick="gPushDisattiva()">Disattiva su questo dispositivo</button>`:''}
   </div>`;
 }
 function gPushGuida(){gPushPopup();}
+/* Una prova vera: parte dal server e torna indietro come una notifica qualsiasi.
+   Se non compare, il problema è nei permessi del sistema, non nel gestionale. */
+async function gPushProva(){
+  const st=document.getElementById('gs_stat');
+  const set=(t,c)=>{if(st){st.textContent=t;st.style.color=c||'';}};
+  set('Invio in corso…');
+  try{
+    const r=await fetch(SB_URL+'/functions/v1/push-send',{method:'POST',
+      headers:{'Content-Type':'application/json','apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY},
+      body:JSON.stringify({secret:cfg('push_fn_secret','')||PUSHFN,title:'🔔 Prova',
+        body:'Se la vedi, le notifiche funzionano su questo dispositivo.',url:'./?go=home',tag:'kirke-prova'})});
+    const j=await r.json();
+    if(j.sent>0){ set('Inviata a '+j.sent+' dispositiv'+(j.sent===1?'o':'i')+'. Se non compare entro 10 secondi, il blocco è nelle impostazioni del sistema.','#4bb573'); }
+    else set('Nessun dispositivo iscritto: riattiva le notifiche.','#f87171');
+  }catch(e){ set('Non riesco a contattare il server: '+e.message,'#f87171'); }
+}
 
 /* --- apertura da notifica: ?go=DESTINAZIONE[&serata=NN] ---
    Ogni notifica deve atterrare esattamente dove serve agire. Se la destinazione
