@@ -5664,23 +5664,48 @@ function gPassaggi(){
 /* --- le tre zone di interesse: cosa arriva, quando, e cosa succede al tocco ---
    GPUSH_NOVITA: alza questa sigla quando cambi le zone. Chi ha già attivato
    rivede il popup una volta sola, così le novità non le scopre per caso. */
-const GPUSH_NOVITA='zone-v1b';   // v1 bruciata da un bug: marcava "vista" prima di mostrarla
+const GPUSH_NOVITA='zone-v2';
 const GPUSH_ZONE=[
-  {ico:'🍾',tit:'Magazzino',sot:'La merce che non è ancora scesa',stato:'attiva',
-   testo:'La serata è chiusa a consuntivo ma le bottiglie risultano ancora tutte in magazzino. Finché non conti, quella serata ha un margine finto.',
-   quando:'03:00 · 12:00 · 14:00 · 17:00 · 21:00, dal giorno dopo la serata',
-   tap:'Apre la conta di quella serata, già impostata. Zero passaggi in mezzo.',
-   stop:'Si spegne da sola appena registri lo scarico.'},
-  {ico:'📊',tit:'Consuntivi',sot:'La serata da chiudere',stato:'presto',
-   testo:'Serata passata e incasso ancora non registrato: senza quel numero non gira nulla, né il margine né la cassa.',
-   quando:'Una volta al giorno, la mattina',
-   tap:'Apre il consuntivo della serata, pronto da riempire.',
-   stop:'Si spegne quando chiudi la serata.'},
-  {ico:'👥',tit:'Team',sot:'Chi manca ancora di chiamare',stato:'presto',
-   testo:'Serata vicina e ruoli ancora scoperti: ti dico quali mancano e chi chiamare.',
-   quando:'Il pomeriggio, nei giorni prima della serata',
-   tap:'Apre la copertura di quella serata, col numero pronto da toccare.',
-   stop:'Si spegne quando la serata è coperta.'}
+  {ico:'🍾',tit:'Scarico merce',sot:'Le bottiglie che non sono ancora scese',stato:'attiva',
+   testo:'Serata chiusa a consuntivo ma il magazzino risulta ancora pieno. Finché non conti, quella serata ha un margine finto.',
+   quando:'03 · 12 · 14 · 17 · 21, dal giorno dopo la serata',
+   tap:'La conta di quella serata, già impostata',
+   stop:'Appena registri lo scarico'},
+  {ico:'📊',tit:'Serata da chiudere',sot:'Il consuntivo che manca',stato:'attiva',
+   testo:'La serata è passata e l\'incasso non è ancora registrato: senza quel numero non gira niente, né margine né cassa.',
+   quando:'Una volta ogni mezza giornata',
+   tap:'Il consuntivo pronto da riempire',
+   stop:'Quando chiudi la serata'},
+  {ico:'📦',tit:'Scorte sotto minimo',sot:'Cosa ricomprare prima di aprire',stato:'attiva',
+   testo:'Uno o più articoli sono scesi sotto la soglia che hai impostato tu nel listino. Ti dico quali, non "controlla il magazzino".',
+   quando:'Una volta al giorno',
+   tap:'Le giacenze, con gli articoli in rosso',
+   stop:'Quando ricarichi'},
+  {ico:'👥',tit:'Serata scoperta',sot:'Nessuno in turno e la data si avvicina',stato:'attiva',
+   testo:'Serata entro tre giorni senza nemmeno una persona assegnata. Meglio accorgersene ora che la mattina stessa.',
+   quando:'Una volta al giorno',
+   tap:'La copertura di quella serata',
+   stop:'Appena assegni qualcuno'},
+  {ico:'📅',tit:'Prenotazioni in attesa',sot:'Chi aspetta una risposta',stato:'attiva',
+   testo:'Richieste dal portale ferme da più di mezza giornata. Ogni ora che passa è un tavolo che può andare altrove.',
+   quando:'Ogni mezza giornata',
+   tap:'Le prenotazioni da confermare',
+   stop:'Quando le confermi o le rifiuti'},
+  {ico:'💰',tit:'Spese senza metodo',sot:'Soldi usciti da un conto ignoto',stato:'attiva',
+   testo:'Tre o più spese registrate senza dire se sono contanti o POS: finché restano così, i saldi di cassa sono imprecisi.',
+   quando:'Ogni due giorni',
+   tap:'La cassa, sulle voci da assegnare',
+   stop:'Quando le attribuisci'},
+  {ico:'✅',tit:'Cose in ritardo',sot:'I to-do con la scadenza passata',stato:'attiva',
+   testo:'Attività scadute e ancora aperte. Poche e secche, non un elenco della spesa.',
+   quando:'Una volta al giorno',
+   tap:'La lista dei to-do',
+   stop:'Quando le spunti'},
+  {ico:'🎉',tit:'Investimento recuperato',sot:'La notizia che aspetti',stato:'attiva',
+   testo:'Il margine di stagione supera i 48.000 € messi dai soci. Arriva una volta sola, e quella sera si festeggia.',
+   quando:'Nel momento esatto in cui succede',
+   tap:'I risultati di stagione',
+   stop:'Non serve: succede una volta'},
 ];
 function gZonaCard(z){
   const on=z.stato==='attiva';
@@ -5703,26 +5728,48 @@ let GPUSH_STEP=1;
 function gPushPopup(step){
   GPUSH_STEP=step||1;
   const pronto=gStandalone()||!gIsIOS();
-  const gia=gPushAttivo();                 // già attivo: è un annuncio, non un'installazione
-  const head=`<div style="margin:-4px -2px 16px;padding:20px 18px 17px;border-radius:16px;background:linear-gradient(150deg,${hexToRgba(PREF.accent,.28)},${hexToRgba(PREF.accent,.05)} 65%,transparent);text-align:center">
+  const gia=gPushAttivo();
+  const tot=GPUSH_ZONE.length;
+  const head=`<div style="margin:-4px -2px 16px;padding:22px 18px 18px;border-radius:16px;background:linear-gradient(150deg,${hexToRgba(PREF.accent,.30)},${hexToRgba(PREF.accent,.06)} 62%,transparent);text-align:center">
     ${gia?`<div style="display:inline-block;font-size:9.5px;font-weight:700;letter-spacing:.1em;padding:3px 9px;border-radius:20px;background:var(--accent);color:#12100c;margin-bottom:11px">NOVITÀ</div><br>`:''}
-    <div style="font-size:34px;line-height:1;margin-bottom:9px">🔔</div>
-    <div class="serif" style="font-size:21px;line-height:1.2;margin-bottom:6px">${gia?'Le notifiche sanno fare di più':'Il gestionale ti scrive lui'}</div>
-    <div class="dim" style="font-size:12.5px;line-height:1.5;max-width:270px;margin:0 auto">${gia?'Sul tuo telefono sono già accese. Ecco cosa arriva adesso e cosa sta per arrivare.':'Non devi più ricordarti niente: quando qualcosa resta a metà, te lo dice il telefono.'}</div>
-    ${gia?'':`<div style="display:flex;gap:5px;justify-content:center;margin-top:14px">
-      ${[1,2].map(i=>`<span style="width:${GPUSH_STEP===i?'18px':'6px'};height:6px;border-radius:3px;background:${GPUSH_STEP===i?'var(--accent)':'var(--border)'};transition:width .2s"></span>`).join('')}
-    </div>`}</div>`;
+    <div style="font-size:36px;line-height:1;margin-bottom:10px">🔔</div>
+    <div class="serif" style="font-size:22px;line-height:1.15;margin-bottom:7px">${gia?'Adesso il gestionale sa dirti '+tot+' cose':'Il gestionale ti scrive lui'}</div>
+    <div class="dim" style="font-size:12.5px;line-height:1.5;max-width:280px;margin:0 auto">${gia
+      ?'Prima ti avvisava solo della merce. Da oggi tiene d\'occhio tutto quello che può restare a metà.'
+      :'Non devi più ricordarti niente. Quando qualcosa resta indietro, te lo dice il telefono — e ti porta dove si sistema.'}</div>
+    <div style="display:flex;gap:5px;justify-content:center;margin-top:15px">
+      ${[1,2,3].map(i=>`<span style="width:${GPUSH_STEP===i?'20px':'6px'};height:6px;border-radius:3px;background:${GPUSH_STEP===i?'var(--accent)':'var(--border)'};transition:width .2s"></span>`).join('')}
+    </div></div>`;
 
   let corpo;
   if(GPUSH_STEP===1){
-    corpo=`<div class="label" style="margin-bottom:10px">Cosa ti arriva · tre zone</div>
-      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px">${GPUSH_ZONE.map(gZonaCard).join('')}</div>
-      <div class="dim" style="font-size:11.5px;line-height:1.5;text-align:center;margin-bottom:14px">Niente raffiche: una notifica per volta, e sempre con dentro cosa fare.</div>
-      ${gia
-        ? `<button class="btn btn-accent" style="width:100%" onclick="gPushVisto()">Perfetto, ho capito</button>
-           <div class="dim" style="font-size:11.5px;line-height:1.5;text-align:center;margin-top:10px">Non devi rifare niente: quando accendo Consuntivi e Team ti arrivano da sole.</div>`
-        : `<button class="btn btn-accent" style="width:100%" onclick="gPushPopup(2)">Va bene, come si attiva? →</button>
-           <button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="gPushRinvia()">Non ora</button>`}`;
+    corpo=`<div class="label" style="margin-bottom:4px">Cosa ti arriva · ${tot} zone</div>
+      <div class="dim" style="font-size:11.5px;line-height:1.5;margin-bottom:11px">Ognuna dice <b>quando</b> suona, <b>dove</b> ti porta il tocco e <b>quando</b> smette da sola.</div>
+      <div style="display:flex;flex-direction:column;gap:9px;margin-bottom:15px">${GPUSH_ZONE.map(gZonaCard).join('')}</div>
+      <button class="btn btn-accent" style="width:100%" onclick="gPushPopup(2)">Come fa a non essere molesto? →</button>
+      <button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="${gia?'gPushVisto()':'gPushRinvia()'}">${gia?'Ho capito, chiudi':'Non ora'}</button>`;
+  } else if(GPUSH_STEP===2){
+    const reg=[
+      ['🕒','Cinque momenti al giorno','Alle 03, 12, 14, 17 e 21. Fuori da questi orari il telefono resta muto, anche se c\'è qualcosa da dire.'],
+      ['1️⃣','Una notifica per volta','Non ricevi mai raffiche. Se ci sono più cose in sospeso arriva solo la più urgente, e le altre aspettano il turno.'],
+      ['🤫','Non si ripete a vuoto','Ogni avviso ha una sua attesa prima di ripresentarsi: sei ore per la merce, mezza giornata per i consuntivi, un giorno per il resto.'],
+      ['👆','Non ti lascia a metà','Il tocco apre esattamente la schermata dove si risolve, già impostata. Mai la home, mai "cercatelo da solo".'],
+      ['✅','Si spegne da sola','Nessun tasto da premere per zittirla: appena sistemi la cosa, l\'avviso smette di arrivare.'],
+      ['🔒','Resta sul telefono','Gli avvisi partono dal server e arrivano solo ai dispositivi che hai attivato tu. Nessuno li vede al posto tuo.'],
+    ];
+    corpo=`<div class="label" style="margin-bottom:10px">Le regole che ho seguito</div>
+      <div style="display:flex;flex-direction:column;gap:11px;margin-bottom:16px">
+        ${reg.map(([i,t,d])=>`<div style="display:flex;gap:11px;align-items:flex-start">
+          <span style="flex:0 0 26px;font-size:17px;line-height:1.2">${i}</span>
+          <div style="flex:1"><div style="font-size:13.5px;font-weight:600;line-height:1.3;margin-bottom:2px">${t}</div>
+            <div class="dim" style="font-size:12px;line-height:1.5">${d}</div></div></div>`).join('')}
+      </div>
+      ${gia?`<button class="btn btn-accent" style="width:100%" onclick="gPushVisto()">Perfetto, ho capito</button>
+             <button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="gPushPopup(1)">← Rivedi le zone</button>`
+           :`<button class="btn btn-accent" style="width:100%" onclick="gPushPopup(3)">Va bene, come si attiva? →</button>
+             <div style="display:flex;gap:8px;margin-top:8px">
+               <button class="btn btn-ghost" style="flex:0 0 44%" onclick="gPushPopup(1)">← Indietro</button>
+               <button class="btn btn-ghost" style="flex:1" onclick="gPushRinvia()">Non ora</button></div>`}`;
   } else {
     const P=gPassaggi(), fatti=P.filter(p=>p[0]).length;
     corpo=`<div class="label" style="margin-bottom:4px">Come si attiva · ${gIsIOS()?'iPhone':'Android'}</div>
@@ -5736,9 +5783,8 @@ function gPushPopup(step){
       <button class="btn btn-accent" id="gp_btn" style="width:100%${pronto?'':';opacity:.5'}" ${pronto?'':'disabled'} onclick="gPushBottone('gp_btn','gp_stat')">🔔 Attiva notifiche</button>
       ${pronto?'':`<div class="dim" style="font-size:11.5px;line-height:1.5;text-align:center;margin-top:9px">Su iPhone il bottone si accende solo dopo che hai aperto KIRKE dall'icona sulla Home: è Apple che vuole così.</div>`}
       <div style="display:flex;gap:8px;margin-top:8px">
-        <button class="btn btn-ghost" style="flex:0 0 44%" onclick="gPushPopup(1)">← Indietro</button>
-        <button class="btn btn-ghost" style="flex:1" onclick="gPushRinvia()">Non ora</button>
-      </div>`;
+        <button class="btn btn-ghost" style="flex:0 0 44%" onclick="gPushPopup(2)">← Indietro</button>
+        <button class="btn btn-ghost" style="flex:1" onclick="gPushRinvia()">Non ora</button></div>`;
   }
   document.getElementById('modalbody').innerHTML=`<div id="gpushPop">${head}${corpo}</div>`;
   showModal();
@@ -5752,7 +5798,7 @@ function gPushCard(){
   const on=gPushAttivo();
   const perm=('Notification' in window)?Notification.permission:'unsupported';
   let msg;
-  if(on)msg='Attive su questo dispositivo. Oggi suona il magazzino (03, 12, 14, 17 e 21). Consuntivi e Team arrivano presto, senza che tu debba rifare nulla.';
+  if(on)msg='Attive su questo dispositivo: '+GPUSH_ZONE.length+' tipi di avviso, alle 03, 12, 14, 17 e 21. Una notifica per volta, mai raffiche.';
   else if(perm==='denied')msg='Bloccate da questo browser: riattivale dalle impostazioni del telefono, poi torna qui.';
   else msg='Ti avviso quando una serata è chiusa a consuntivo ma la merce non è ancora scaricata.';
   return `<div class="label" style="margin:20px 0 10px">🔔 Notifiche push · promemoria scarico merce</div>
