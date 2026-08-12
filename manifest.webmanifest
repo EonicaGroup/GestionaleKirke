@@ -1,16 +1,42 @@
 {
+  "id": "/",
   "name": "KIRKE — Gestionale",
   "short_name": "KIRKE",
-  "description": "Gestionale serate, magazzino e prenotazioni Kirke Ritual Lounge",
+  "description": "Gestionale serate, magazzino e prenotazioni · KIRKE Ritual Lounge",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "orientation": "portrait",
+  "display_override": [
+    "window-controls-overlay",
+    "standalone",
+    "minimal-ui"
+  ],
+  "orientation": "any",
   "background_color": "#080604",
   "theme_color": "#0D0D0F",
+  "categories": [
+    "business",
+    "productivity"
+  ],
+  "lang": "it",
   "icons": [
-    { "src": "https://crumhchnzebiqmbaivjt.supabase.co/storage/v1/object/public/appdist/kirke-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "https://crumhchnzebiqmbaivjt.supabase.co/storage/v1/object/public/appdist/kirke-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "https://crumhchnzebiqmbaivjt.supabase.co/storage/v1/object/public/appdist/kirke-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }

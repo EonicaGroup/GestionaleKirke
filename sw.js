@@ -8,17 +8,23 @@ self.addEventListener('push', function(event){
   // Sul computer le notifiche svaniscono dopo pochi secondi e finiscono nel Centro
   // Notifiche senza che te ne accorga: lì restano finché non le tocchi.
   var desktop = !/Android|iPhone|iPad|Mobile/i.test(self.navigator && self.navigator.userAgent || '');
+  // Icone servite dallo stesso sito: se arrivano da un dominio esterno il sistema
+  // non le associa all'app e mostra l'icona del browser al loro posto.
   event.waitUntil(self.registration.showNotification(data.title||'KIRKE',{
     body:data.body||'',
-    icon:'https://crumhchnzebiqmbaivjt.supabase.co/storage/v1/object/public/appdist/kirke-192.png',
-    badge:'https://crumhchnzebiqmbaivjt.supabase.co/storage/v1/object/public/appdist/kirke-192.png',
+    icon:'./icon-512.png',
+    badge:'./icon-192.png',
+    image:data.image||undefined,
     tag:data.tag||'kirke-pren', renotify:true, vibrate:[90,40,90],
     requireInteraction: desktop,
+    silent:false,
+    actions: desktop ? [{action:'apri',title:'Apri'},{action:'dopo',title:'Più tardi'}] : [],
     data:{url:data.url||'./'}
   }));
 });
 self.addEventListener('notificationclick', function(event){
   event.notification.close();
+  if(event.action==='dopo') return;            // "Più tardi": chiude e basta
   var url=(event.notification.data&&event.notification.data.url)||'./';
   var full=new URL(url, self.location.origin).href;
   event.waitUntil(self.clients.matchAll({type:'window',includeUncontrolled:true}).then(function(list){
